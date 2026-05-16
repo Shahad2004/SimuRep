@@ -9,6 +9,8 @@ import {
   Hash,
   MessageSquare,
   X,
+  Copy,
+  Check,
 } from 'lucide-react';
 import {
   loadInstructorClasses,
@@ -16,6 +18,7 @@ import {
   loadStudentJoined,
   saveInstructorClasses,
   generatePin,
+  createSharedLabCode,
   type InstructorClass,
   type Lab,
   type LabTemplateId,
@@ -88,6 +91,7 @@ export function InstructorDashboard() {
   const [productionS, setProductionS] = useState(100);
   const [productionPattern, setProductionPattern] = useState<ProductionPlanningScenario['pattern']>('horizontal');
   const [lineCycleTimeSec, setLineCycleTimeSec] = useState(60);
+  const [copiedLabId, setCopiedLabId] = useState<string | null>(null);
 
   useEffect(() => {
     saveInstructorClasses(classes);
@@ -244,6 +248,34 @@ export function InstructorDashboard() {
           : c,
       ),
     );
+  };
+
+  const createStudentJoinUrl = (cls: InstructorClass, lab: Lab) => {
+    if (typeof window === 'undefined') return '';
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('lab', createSharedLabCode(cls, lab));
+    return url.toString();
+  };
+
+  const handleCopyStudentLink = async (cls: InstructorClass, lab: Lab) => {
+    const link = createStudentJoinUrl(cls, lab);
+    if (!link) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        window.prompt('Copy this student link:', link);
+      }
+      setCopiedLabId(lab.id);
+      window.setTimeout(() => {
+        setCopiedLabId((current) => (current === lab.id ? null : current));
+      }, 2000);
+    } catch {
+      window.prompt('Copy this student link:', link);
+    }
   };
 
   const totalClasses = classes.length;
@@ -511,6 +543,14 @@ export function InstructorDashboard() {
                               <Hash className="w-4 h-4 text-amber-400" />
                               <span className="text-sm font-mono font-bold text-white">PIN: {lab.pin}</span>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleCopyStudentLink(selectedClass, lab)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-500"
+                            >
+                              {copiedLabId === lab.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              {copiedLabId === lab.id ? 'Copied link' : 'Copy student link'}
+                            </button>
                           </div>
                           <div>
                             <label className="text-xs font-semibold text-slate-400 flex items-center gap-1 mb-1">

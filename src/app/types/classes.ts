@@ -39,6 +39,8 @@ export interface LineBalancingTask {
   timeSec: number;
   /** Optional group label for UI (e.g. Cutting/Sewing/Packing) */
   group?: string;
+  /** 1-based step in the fixed shirt flow (cutting → sewing → QC → packing) */
+  sequenceOrder?: number;
 }
 
 /** Line Balancing scenario params. Level 1 keeps tasks and station cost fixed; instructor sets CT. */
@@ -104,6 +106,14 @@ export interface LabPerformanceResult {
 const INSTRUCTOR_CLASSES_KEY = 'simulab_instructor_classes_v2';
 const STUDENT_JOINED_KEY = 'simulab_student_joined_v1';
 const LAB_PERFORMANCE_RESULTS_KEY = 'simulab_lab_performance_results_v1';
+
+interface SharedLabPayload {
+  version: 1;
+  classId: string;
+  className: string;
+  classCreatedAt: string;
+  lab: Lab;
+}
 
 function generatePin(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -191,6 +201,75 @@ export function findLabByPin(classes: InstructorClass[], pin: string): { class: 
     if (lab) return { class: c, lab };
   }
   return null;
+}
+
+function toBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function fromBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+export function createSharedLabCode(cls: InstructorClass, lab: Lab): string {
+  const payload: SharedLabPayload = {
+    version: 1,
+    classId: cls.id,
+    className: cls.name,
+    classCreatedAt: cls.createdAt,
+    lab,
+  };
+  return toBase64Url(JSON.stringify(payload));
+}
+
+export function readSharedLabCode(code: string): { class: InstructorClass; lab: Lab } | null {
+  try {
+    const payload = JSON.parse(fromBase64Url(code)) as Partial<SharedLabPayload>;
+    if (payload.version !== 1 || !payload.classId || !payload.className || !payload.classCreatedAt || !payload.lab) {
+      return null;
+    }
+    const lab = payload.lab;
+    if (!lab.id || !lab.pin || !lab.templateId || !lab.scenario || !lab.createdAt || !lab.status) {
+      return null;
+    }
+    return {
+      class: {
+        id: payload.classId,
+        name: payload.className,
+        createdAt: payload.classCreatedAt,
+        labs: [lab],
+      },
+      lab,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function mergeSharedLab(classes: InstructorClass[], shared: { class: InstructorClass; lab: Lab }): InstructorClass[] {
+  const existingClass = classes.find((c) => c.id === shared.class.id);
+  if (!existingClass) return [shared.class, ...classes];
+
+  return classes.map((c) => {
+    if (c.id !== shared.class.id) return c;
+    const existingLab = c.labs.some((l) => l.id === shared.lab.id);
+    return {
+      ...c,
+      name: shared.class.name,
+      labs: existingLab
+        ? c.labs.map((l) => (l.id === shared.lab.id ? shared.lab : l))
+        : [shared.lab, ...c.labs],
+    };
+  });
 }
 
 export { generatePin };

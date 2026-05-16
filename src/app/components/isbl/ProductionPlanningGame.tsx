@@ -3,6 +3,7 @@ import { BarChart, MessageSquare, Package, LogOut, RotateCcw, X, Play, TrendingU
 import { motion, AnimatePresence } from 'motion/react';
 import type { ScenarioDefinition } from '@/app/types/classes';
 import type { ProductionPlanningScenario } from '@/app/types/classes';
+import htuLogo from '@/assets/icons/htu-industrial-virtual-lab.png';
 
 interface ProductionPlanningGameProps {
   scenario: ScenarioDefinition;
@@ -121,6 +122,21 @@ export function ProductionPlanningGame({ scenario, productionPlanning, onLeave }
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="overflow-hidden rounded-xl">
+                  <img
+                    src={htuLogo}
+                    alt="HTU Industrial Virtual Lab"
+                    className="h-11 w-auto object-contain"
+                  />
+                </div>
+                <div className="hidden sm:block leading-tight">
+                  <div className="text-white font-semibold tracking-wide">Virtual Lab</div>
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-cyan-400/80 -mt-0.5">
+                    Industrial simulation
+                  </div>
+                </div>
+              </div>
               <div className="bg-slate-800/95 rounded-xl px-5 py-2.5 border border-slate-600/50 shadow-lg">
                 <span className="text-slate-400 text-[10px] uppercase tracking-wider font-medium">Period</span>
                 <div className="text-2xl font-bold text-white leading-tight">

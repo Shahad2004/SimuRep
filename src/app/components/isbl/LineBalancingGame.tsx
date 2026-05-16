@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { BarChart3, Coins, Factory, LogOut, RotateCcw, Send, Timer, Volume2, VolumeX } from 'lucide-react';
+import {
+  AlertTriangle,
+  BarChart3,
+  Coins,
+  Factory,
+  ListOrdered,
+  Lock,
+  LogOut,
+  RotateCcw,
+  Send,
+  Timer,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   saveLabPerformanceResult,
@@ -24,6 +37,7 @@ import stationEmpty from '@/assets/line-balancing/workstations/station_empty.png
 import taskCutting from '@/assets/line-balancing/tasks/task_cutting.png';
 import taskPacking from '@/assets/line-balancing/tasks/task_packing.png';
 import taskSewing from '@/assets/line-balancing/tasks/task_sewing.png';
+import htuLogo from '@/assets/icons/htu-industrial-virtual-lab.png';
 
 interface LineBalancingGameProps {
   scenario: ScenarioDefinition;
@@ -32,26 +46,93 @@ interface LineBalancingGameProps {
   onLeave: () => void;
 }
 
-const TYPE_MS_PER_CHAR = 42;
-const LINE_PAUSE_MS = 780;
+const TYPE_MS_PER_CHAR = 72;
+const LINE_PAUSE_MS = 1100;
 const FEEDBACK_TOAST_MS = 2800;
 /** Add your MP3 loop as `public/simulab-ambient.mp3` in the project root. */
 const BG_MUSIC_PUBLIC_PATH = '/simulab-ambient.mp3';
 const DEFAULT_CYCLE_TIME_SEC = 60;
 const FIXED_WORKSTATION_COST_COINS = 100;
+/** Fixed shirt flow: each task requires earlier steps to be on a workstation first. */
+const TASK_SEQUENCE: string[] = [
+  't_cut_panels',
+  't_trim_edges',
+  't_mark_points',
+  't_sew_shoulders',
+  't_attach_sleeves',
+  't_close_sides',
+  't_hem_bottom',
+  't_quality_check',
+  't_fold_garment',
+  't_pack_label',
+];
+
 const FIXED_LINE_BALANCING_TASKS: LineBalancingTask[] = [
-  { id: 't_cut_panels', label: 'Cut fabric panels', timeSec: 18, group: 'Cutting' },
-  { id: 't_trim_edges', label: 'Trim fabric edges', timeSec: 12, group: 'Cutting' },
-  { id: 't_mark_points', label: 'Mark stitch points', timeSec: 10, group: 'Cutting' },
-  { id: 't_sew_shoulders', label: 'Sew shoulder seams', timeSec: 24, group: 'Sewing' },
-  { id: 't_attach_sleeves', label: 'Attach sleeves', timeSec: 28, group: 'Sewing' },
-  { id: 't_close_sides', label: 'Close side seams', timeSec: 22, group: 'Sewing' },
-  { id: 't_hem_bottom', label: 'Hem bottom edge', timeSec: 16, group: 'Sewing' },
-  { id: 't_quality_check', label: 'Inspect shirt quality', timeSec: 12, group: 'Quality Check' },
-  { id: 't_fold_garment', label: 'Fold garment', timeSec: 14, group: 'Packing' },
-  { id: 't_pack_label', label: 'Pack and label', timeSec: 16, group: 'Packing' },
+  { id: 't_cut_panels', label: 'Cut fabric panels', timeSec: 18, group: 'Cutting', sequenceOrder: 1 },
+  { id: 't_trim_edges', label: 'Trim fabric edges', timeSec: 12, group: 'Cutting', sequenceOrder: 2 },
+  { id: 't_mark_points', label: 'Mark stitch points', timeSec: 10, group: 'Cutting', sequenceOrder: 3 },
+  { id: 't_sew_shoulders', label: 'Sew shoulder seams', timeSec: 24, group: 'Sewing', sequenceOrder: 4 },
+  { id: 't_attach_sleeves', label: 'Attach sleeves', timeSec: 28, group: 'Sewing', sequenceOrder: 5 },
+  { id: 't_close_sides', label: 'Close side seams', timeSec: 22, group: 'Sewing', sequenceOrder: 6 },
+  { id: 't_hem_bottom', label: 'Hem bottom edge', timeSec: 16, group: 'Sewing', sequenceOrder: 7 },
+  { id: 't_quality_check', label: 'Inspect shirt quality', timeSec: 12, group: 'Quality Check', sequenceOrder: 8 },
+  { id: 't_fold_garment', label: 'Fold garment', timeSec: 14, group: 'Packing', sequenceOrder: 9 },
+  { id: 't_pack_label', label: 'Pack and label', timeSec: 16, group: 'Packing', sequenceOrder: 10 },
 ];
 const MIN_CYCLE_TIME_SEC = Math.max(...FIXED_LINE_BALANCING_TASKS.map((task) => task.timeSec));
+
+function sortTasksBySequence(taskList: LineBalancingTask[]) {
+  return [...taskList].sort(
+    (a, b) => TASK_SEQUENCE.indexOf(a.id) - TASK_SEQUENCE.indexOf(b.id),
+  );
+}
+
+function getAssignedTaskIds(assignment: Record<string, string[]>) {
+  return new Set(Object.values(assignment).flat());
+}
+
+function getPrerequisiteIds(taskId: string) {
+  const idx = TASK_SEQUENCE.indexOf(taskId);
+  if (idx <= 0) return [];
+  return TASK_SEQUENCE.slice(0, idx);
+}
+
+function getDependentIds(taskId: string) {
+  const idx = TASK_SEQUENCE.indexOf(taskId);
+  if (idx < 0 || idx >= TASK_SEQUENCE.length - 1) return [];
+  return TASK_SEQUENCE.slice(idx + 1);
+}
+
+function checkCanAssignTask(
+  taskId: string,
+  assignedIds: Set<string>,
+  taskList: LineBalancingTask[],
+): { ok: true } | { ok: false; missing: LineBalancingTask[] } {
+  const missing = getPrerequisiteIds(taskId)
+    .filter((id) => !assignedIds.has(id))
+    .map((id) => taskList.find((t) => t.id === id))
+    .filter((t): t is LineBalancingTask => t != null);
+  if (missing.length === 0) return { ok: true };
+  return { ok: false, missing };
+}
+
+function checkCanUnassignTask(
+  taskId: string,
+  assignedIds: Set<string>,
+  taskList: LineBalancingTask[],
+): { ok: true } | { ok: false; blockedBy: LineBalancingTask[] } {
+  const blockedBy = getDependentIds(taskId)
+    .filter((id) => assignedIds.has(id))
+    .map((id) => taskList.find((t) => t.id === id))
+    .filter((t): t is LineBalancingTask => t != null);
+  if (blockedBy.length === 0) return { ok: true };
+  return { ok: false, blockedBy };
+}
+
+type SequenceAlert =
+  | { kind: 'assign'; task: LineBalancingTask; missing: LineBalancingTask[] }
+  | { kind: 'unassign'; task: LineBalancingTask; blockedBy: LineBalancingTask[] }
+  | { kind: 'guide' };
 
 function useTypingLines(lines: string[], scriptKey: string) {
   const [lineIndex, setLineIndex] = useState(0);
@@ -182,7 +263,7 @@ function useAmbientMusic(enabled: boolean, muted: boolean) {
   }, [muted]);
 }
 
-type GameSoundEffectKind = 'station' | 'cutting' | 'sewing' | 'quality' | 'packing' | 'task';
+type GameSoundEffectKind = 'station' | 'cutting' | 'sewing' | 'quality' | 'packing' | 'task' | 'timeUp';
 
 function useGameSoundEffects(muted: boolean) {
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -261,6 +342,14 @@ function useGameSoundEffects(muted: boolean) {
     if (kind === 'packing') {
       playTone('sawtooth', 0, 0.22, 620, 250, 0.055);
       playTone('triangle', 0.12, 0.12, 140, 70, 0.075);
+      return;
+    }
+
+    if (kind === 'timeUp') {
+      for (let i = 0; i < 4; i += 1) {
+        playTone('sine', i * 0.22, 0.18, 520 + i * 90, 880 + i * 90, 0.12);
+        playTone('triangle', i * 0.22 + 0.08, 0.12, 1040, 1040, 0.08);
+      }
       return;
     }
 
@@ -434,9 +523,12 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
   const [submitted, setSubmitted] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<{ text: string; variant: 'good' | 'bad' } | null>(null);
+  const [timeExpired, setTimeExpired] = useState(false);
+  const [sequenceAlert, setSequenceAlert] = useState<SequenceAlert | null>(null);
 
   const draggedOverRef = useRef<string | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
+  const timeExpiredNotifiedRef = useRef(false);
 
   const showFeedback = (text: string, variant: 'good' | 'bad') => {
     if (feedbackTimerRef.current != null) window.clearTimeout(feedbackTimerRef.current);
@@ -446,8 +538,20 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
       feedbackTimerRef.current = null;
     }, FEEDBACK_TOAST_MS);
   };
-  const assignedTaskIds = useMemo(() => new Set(Object.values(assignment).flat()), [assignment]);
-  const unassignedTasks = useMemo(() => tasks.filter((t) => !assignedTaskIds.has(t.id)), [tasks, assignedTaskIds]);
+  const assignedTaskIds = useMemo(() => getAssignedTaskIds(assignment), [assignment]);
+  const unassignedTasks = useMemo(
+    () => sortTasksBySequence(tasks.filter((t) => !assignedTaskIds.has(t.id))),
+    [tasks, assignedTaskIds],
+  );
+  const sequencedTasks = useMemo(() => sortTasksBySequence(tasks), [tasks]);
+  const taskAssignReadiness = useMemo(() => {
+    const map = new Map<string, { canAssign: boolean; missing: LineBalancingTask[] }>();
+    for (const task of tasks) {
+      const check = checkCanAssignTask(task.id, assignedTaskIds, tasks);
+      map.set(task.id, check.ok ? { canAssign: true, missing: [] } : { canAssign: false, missing: check.missing });
+    }
+    return map;
+  }, [tasks, assignedTaskIds]);
 
   const stationLoads = useMemo(() => {
     const loads: Record<string, number> = {};
@@ -526,10 +630,11 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
       case 'assign_intro':
         return [
           'Now comes the hands-on factory work.',
-          'Drag each T-shirt task into a workstation.',
+          'Tasks follow a fixed shirt flow: cutting → sewing → quality check → packing.',
+          'You cannot place a later task until earlier steps are on a workstation.',
           'Remember:',
-          `The total time in each workstation must NOT exceed the cycle time (${cycleTimeSec}s).`,
-          'A good line keeps cutting, sewing, and packing moving at the same pace.',
+          `Each workstation load must NOT exceed the cycle time (${cycleTimeSec}s).`,
+          'Follow the numbered sequence on the task list.',
         ];
       case 'assign_review':
         return [
@@ -562,6 +667,28 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     return () => window.clearInterval(t);
   }, [phase]);
 
+  useEffect(() => {
+    if (phase === 'briefing' || phase === 'results') return;
+    if (secondsLeft > 0) return;
+    if (timeExpiredNotifiedRef.current) return;
+
+    timeExpiredNotifiedRef.current = true;
+    setTimeExpired(true);
+    showFeedback("Time's up! Submit your line balance before leaving.", 'bad');
+    playSoundEffect('timeUp');
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('Virtual Lab — Time is up', {
+          body: 'Your round timer has ended. Submit your decisions in the game.',
+          tag: 'line-balancing-time-up',
+        });
+      } catch {
+        // Ignore notification errors (e.g. unsupported context).
+      }
+    }
+  }, [phase, secondsLeft, playSoundEffect]);
+
   const reset = () => {
     setPhase('briefing');
     setTutorialStep('welcome');
@@ -572,6 +699,9 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     setSubmitted(false);
     setShowAnalytics(false);
     setFeedbackToast(null);
+    setTimeExpired(false);
+    setSequenceAlert(null);
+    timeExpiredNotifiedRef.current = false;
     if (feedbackTimerRef.current != null) window.clearTimeout(feedbackTimerRef.current);
     feedbackTimerRef.current = null;
   };
@@ -612,9 +742,30 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     void tasksToReturn;
   };
 
+  const showSequenceAlert = (alert: SequenceAlert) => {
+    setSequenceAlert(alert);
+    const msg =
+      alert.kind === 'assign'
+        ? `Complete earlier steps first: ${alert.missing.map((t) => t.label).join(' → ')}.`
+        : `Remove later tasks first: ${alert.blockedBy.map((t) => t.label).join(', ')}.`;
+    showFeedback(msg, 'bad');
+    playSoundEffect('timeUp');
+  };
+
   const onTaskDropToStation = (stationId: string, payload: DragPayload) => {
     if (payload.kind !== 'task' && payload.kind !== 'task-move') return;
-    playSoundEffect(getTaskSoundEffect(tasks.find((task) => task.id === payload.taskId)));
+    const task = tasks.find((t) => t.id === payload.taskId);
+    if (!task) return;
+
+    if (payload.kind === 'task') {
+      const check = checkCanAssignTask(payload.taskId, assignedTaskIds, tasks);
+      if (!check.ok) {
+        showSequenceAlert({ kind: 'assign', task, missing: check.missing });
+        return;
+      }
+    }
+
+    playSoundEffect(getTaskSoundEffect(task));
     setAssignment((prev) => {
       const next = applyTaskDrop(stations, prev, stationId, payload);
       if (phase === 'assign') {
@@ -633,7 +784,16 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
 
   const onTaskDropToUnassigned = (payload: DragPayload) => {
     if (payload.kind !== 'task-move') return;
-    playSoundEffect(getTaskSoundEffect(tasks.find((task) => task.id === payload.taskId)));
+    const task = tasks.find((t) => t.id === payload.taskId);
+    if (!task) return;
+
+    const check = checkCanUnassignTask(payload.taskId, assignedTaskIds, tasks);
+    if (!check.ok) {
+      showSequenceAlert({ kind: 'unassign', task, blockedBy: check.blockedBy });
+      return;
+    }
+
+    playSoundEffect(getTaskSoundEffect(task));
     setAssignment((prev) => {
       const next: Record<string, string[]> = {};
       for (const st of stations) next[st.id] = [...(prev[st.id] ?? [])];
@@ -663,6 +823,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     setSubmitted(true);
     setPhase('results');
     setTutorialStep('results');
+    setTimeExpired(false);
   };
 
   const proceedToCostPhase = () => {
@@ -715,12 +876,18 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-600 via-cyan-600 to-emerald-500 flex items-center justify-center shadow-lg shadow-sky-500/20">
-                  <Factory className="w-5 h-5 text-white" />
+                <div className="overflow-hidden rounded-xl">
+                  <img
+                    src={htuLogo}
+                    alt="HTU Industrial Virtual Lab"
+                    className="h-11 w-auto object-contain"
+                  />
                 </div>
                 <div className="leading-tight">
-                  <div className="text-white font-semibold">Virtual Lab</div>
-                  <div className="text-[11px] text-slate-400 -mt-0.5">Student Dashboard</div>
+                  <div className="text-white font-semibold tracking-wide">Virtual Lab</div>
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-cyan-400/80 -mt-0.5">
+                    Industrial simulation
+                  </div>
                 </div>
               </div>
               <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
@@ -734,22 +901,34 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <div
+              <motion.div
+                animate={
+                  timeExpired
+                    ? { scale: [1, 1.06, 1], boxShadow: ['0 0 0 rgba(244,63,94,0)', '0 0 24px rgba(244,63,94,0.45)', '0 0 0 rgba(244,63,94,0)'] }
+                    : {}
+                }
+                transition={timeExpired ? { duration: 1.2, repeat: Infinity } : {}}
                 className={`bg-slate-900/70 border rounded-xl px-4 py-2 flex items-center gap-2 transition-colors ${
-                  phase !== 'briefing' && secondsLeft <= 30
-                    ? 'border-rose-500/50 shadow-lg shadow-rose-500/20 animate-pulse'
-                    : 'border-slate-700'
+                  timeExpired
+                    ? 'border-rose-400 shadow-lg shadow-rose-500/30'
+                    : phase !== 'briefing' && secondsLeft <= 30
+                      ? 'border-rose-500/50 shadow-lg shadow-rose-500/20 animate-pulse'
+                      : 'border-slate-700'
                 }`}
               >
-                <Timer className={`w-4 h-4 ${phase !== 'briefing' && secondsLeft <= 30 ? 'text-rose-300' : 'text-slate-300'}`} />
+                <Timer
+                  className={`w-4 h-4 ${
+                    timeExpired || (phase !== 'briefing' && secondsLeft <= 30) ? 'text-rose-300' : 'text-slate-300'
+                  }`}
+                />
                 <span
                   className={`font-semibold tabular-nums ${
-                    phase !== 'briefing' && secondsLeft <= 30 ? 'text-rose-200' : 'text-slate-200'
+                    timeExpired || (phase !== 'briefing' && secondsLeft <= 30) ? 'text-rose-200' : 'text-slate-200'
                   }`}
                 >
-                  {formatMMSS(secondsLeft)}
+                  {timeExpired ? "TIME'S UP" : formatMMSS(secondsLeft)}
                 </span>
-              </div>
+              </motion.div>
               <div className="bg-slate-900/70 border border-slate-700 rounded-xl px-4 py-2 flex items-center gap-2">
                 <Coins className="w-4 h-4 text-amber-300" />
                 <span className="text-white font-semibold tabular-nums">{coins}</span>
@@ -1109,31 +1288,79 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                     if (payload) onTaskDropToUnassigned(payload);
                   }}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <div>
                       <div className="text-sm font-semibold text-white">Tasks</div>
                       <div className="text-xs text-slate-400 mt-1">
-                        Drag tasks to stations • Remaining <span className="text-slate-200 font-semibold tabular-nums">{unassignedTasks.length}</span>
+                        Follow the numbered sequence • Remaining{' '}
+                        <span className="text-slate-200 font-semibold tabular-nums">{unassignedTasks.length}</span>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setSequenceAlert({ kind: 'guide' })}
+                      className="shrink-0 rounded-lg border border-cyan-500/35 bg-cyan-950/30 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-900/40 flex items-center gap-1"
+                    >
+                      <ListOrdered className="w-3.5 h-3.5" />
+                      Sequence
+                    </button>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-cyan-500/25 bg-cyan-950/20 px-3 py-2 text-[11px] text-cyan-100/90">
+                    Shirt flow: cutting → sewing → quality → packing. Later steps stay locked until earlier ones are on a
+                    workstation.
                   </div>
 
                   <div className="mt-4 space-y-2">
-                    {unassignedTasks.map((t) => (
-                      <div
-                        key={t.id}
-                        draggable
-                        onDragStart={(e) => e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'task', taskId: t.id } satisfies DragPayload))}
-                        className="cursor-grab active:cursor-grabbing select-none rounded-xl border border-slate-700 bg-slate-950/30 p-3 flex items-center gap-3 hover:bg-slate-900/60"
-                      >
-                        <img src={getTaskIcon(t.group)} alt="" className="w-9 h-9 object-contain" />
-                        <div className="flex-1">
-                          <div className="text-sm font-semibold text-white">{t.label}</div>
-                          <div className="text-[11px] text-slate-400">{t.group ?? 'Task'}</div>
+                    {unassignedTasks.map((t) => {
+                      const readiness = taskAssignReadiness.get(t.id);
+                      const canDrag = readiness?.canAssign ?? false;
+                      const step = t.sequenceOrder ?? TASK_SEQUENCE.indexOf(t.id) + 1;
+                      return (
+                        <div
+                          key={t.id}
+                          draggable={canDrag}
+                          onDragStart={(e) => {
+                            if (!canDrag) {
+                              e.preventDefault();
+                              return;
+                            }
+                            e.dataTransfer.setData(
+                              'text/plain',
+                              JSON.stringify({ kind: 'task', taskId: t.id } satisfies DragPayload),
+                            );
+                          }}
+                          onClick={() => {
+                            if (canDrag || !readiness?.missing.length) return;
+                            showSequenceAlert({ kind: 'assign', task: t, missing: readiness.missing });
+                          }}
+                          className={`select-none rounded-xl border p-3 flex items-center gap-3 transition-colors ${
+                            canDrag
+                              ? 'cursor-grab active:cursor-grabbing border-slate-700 bg-slate-950/30 hover:bg-slate-900/60'
+                              : 'cursor-not-allowed border-amber-500/35 bg-amber-950/15 opacity-90'
+                          }`}
+                        >
+                          <div
+                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold tabular-nums ${
+                              canDrag ? 'bg-cyan-500/20 text-cyan-200' : 'bg-amber-500/20 text-amber-200'
+                            }`}
+                          >
+                            {canDrag ? step : <Lock className="w-3.5 h-3.5" />}
+                          </div>
+                          <img src={getTaskIcon(t.group)} alt="" className="w-9 h-9 object-contain opacity-90" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold text-white truncate">{t.label}</div>
+                            <div className="text-[11px] text-slate-400">{t.group ?? 'Task'}</div>
+                            {!canDrag && readiness?.missing.length ? (
+                              <div className="text-[10px] text-amber-200/90 mt-0.5 truncate">
+                                After: {readiness.missing[readiness.missing.length - 1]?.label}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="text-sm font-semibold text-slate-200 tabular-nums shrink-0">{t.timeSec}s</div>
                         </div>
-                        <div className="text-sm font-semibold text-slate-200 tabular-nums">{t.timeSec}s</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {unassignedTasks.length === 0 && (
                       <div className="rounded-xl border border-emerald-500/30 bg-emerald-900/10 p-3 text-sm text-emerald-200">
                         All tasks assigned. Now check overload and balance.
@@ -1151,7 +1378,8 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                     <div>
                       <div className="text-sm font-semibold text-white">Assign tasks to workstations</div>
                       <div className="text-xs text-slate-400 mt-1">
-                        Constraint: each station load ≤ <span className="text-slate-200 font-semibold tabular-nums">{cycleTimeSec}s</span>
+                        Sequence order required • each station load ≤{' '}
+                        <span className="text-slate-200 font-semibold tabular-nums">{cycleTimeSec}s</span>
                       </div>
                     </div>
                     <div className="text-xs text-slate-400">
@@ -1587,6 +1815,170 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {timeExpired && phase !== 'briefing' && phase !== 'results' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="time-up-title"
+            aria-describedby="time-up-desc"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+              className="w-full max-w-md rounded-2xl border border-rose-500/50 bg-gradient-to-br from-slate-900 via-slate-950 to-rose-950/40 p-6 shadow-2xl shadow-rose-500/20"
+            >
+              <motion.div
+                animate={{ scale: [1, 1.08, 1] }}
+                transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut' }}
+                className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-rose-500/20 ring-2 ring-rose-400/50"
+              >
+                <AlertTriangle className="h-7 w-7 text-rose-300" aria-hidden />
+              </motion.div>
+              <h2 id="time-up-title" className="text-center text-xl font-bold text-white">
+                Time&apos;s up!
+              </h2>
+              <p id="time-up-desc" className="mt-2 text-center text-sm text-slate-300">
+                The round timer has ended. Submit your line balance when you are ready, or keep adjusting your workstations.
+              </p>
+              <motion.div
+                animate={{ opacity: [0.55, 1, 0.55] }}
+                transition={{ duration: 1.4, repeat: Infinity }}
+                className="mt-4 rounded-xl border border-rose-500/30 bg-rose-900/20 px-4 py-3 text-center text-sm font-semibold text-rose-100"
+              >
+                Timer: 00:00 — submit before you leave the lab
+              </motion.div>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
+                {canSubmit ? (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    className="px-5 py-2.5 rounded-xl font-semibold bg-amber-500 text-slate-950 border border-amber-400 hover:bg-amber-400 flex items-center justify-center gap-2"
+                  >
+                    Submit now
+                    <Send className="w-4 h-4" />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setTimeExpired(false)}
+                  className="px-5 py-2.5 rounded-xl font-semibold bg-slate-800 text-slate-200 border border-slate-600 hover:bg-slate-700"
+                >
+                  Continue playing
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {sequenceAlert && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="sequence-alert-title"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+              className="w-full max-w-lg rounded-2xl border border-amber-500/45 bg-gradient-to-br from-slate-900 via-slate-950 to-amber-950/30 p-6 shadow-2xl shadow-amber-500/15"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-500/20 ring-2 ring-amber-400/40">
+                  <ListOrdered className="h-5 w-5 text-amber-200" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 id="sequence-alert-title" className="text-lg font-bold text-white">
+                    {sequenceAlert.kind === 'guide'
+                      ? 'Correct task sequence'
+                      : sequenceAlert.kind === 'assign'
+                        ? 'Task locked — wrong order'
+                        : 'Cannot remove this task yet'}
+                  </h2>
+                  {sequenceAlert.kind === 'assign' && sequenceAlert.missing.length > 0 ? (
+                    <p className="mt-2 text-sm text-slate-300">
+                      <span className="font-semibold text-amber-200">{sequenceAlert.task.label}</span> cannot enter a
+                      workstation until these earlier steps are assigned first:
+                    </p>
+                  ) : sequenceAlert.kind === 'unassign' ? (
+                    <p className="mt-2 text-sm text-slate-300">
+                      Remove later steps from workstations before taking back{' '}
+                      <span className="font-semibold text-amber-200">{sequenceAlert.task.label}</span>:
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-300">
+                      T-shirt tasks follow a fixed factory flow. Assign them in this order (any workstation, but step by
+                      step):
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <ol className="mt-4 max-h-56 space-y-1.5 overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-950/50 p-3">
+                {sequencedTasks.map((t, idx) => {
+                  const step = t.sequenceOrder ?? idx + 1;
+                  const isAssigned = assignedTaskIds.has(t.id);
+                  const isAttempted =
+                    sequenceAlert.kind === 'assign' && sequenceAlert.task.id === t.id;
+                  const isMissing =
+                    sequenceAlert.kind === 'assign' && sequenceAlert.missing.some((m) => m.id === t.id);
+                  const isBlocker =
+                    sequenceAlert.kind === 'unassign' && sequenceAlert.blockedBy.some((b) => b.id === t.id);
+                  return (
+                    <li
+                      key={t.id}
+                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                        isAttempted
+                          ? 'bg-amber-500/15 text-amber-100 ring-1 ring-amber-500/35'
+                          : isMissing || isBlocker
+                            ? 'bg-rose-500/10 text-rose-100'
+                            : isAssigned
+                              ? 'bg-emerald-500/10 text-emerald-100'
+                              : 'text-slate-300'
+                      }`}
+                    >
+                      <span className="w-6 shrink-0 text-center text-xs font-bold tabular-nums text-cyan-300">{step}</span>
+                      <span className="flex-1 truncate">{t.label}</span>
+                      <span className="shrink-0 text-[10px] uppercase tracking-wide opacity-80">
+                        {isAssigned ? 'On line' : isMissing ? 'Do first' : isBlocker ? 'Remove first' : t.group}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+
+              <p className="mt-3 text-[11px] text-slate-500">
+                Line balancing still allows multiple tasks per station — but the shirt must follow cutting → sewing → QC →
+                packing.
+              </p>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSequenceAlert(null)}
+                  className="px-5 py-2.5 rounded-xl font-semibold bg-amber-500 text-slate-950 border border-amber-400 hover:bg-amber-400"
+                >
+                  Got it
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

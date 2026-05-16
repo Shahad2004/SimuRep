@@ -39,7 +39,10 @@ export default function App() {
   const resolved = useResolvedLab(selectedLabEntry);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.search.includes('join=')) setView('student');
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      if (search.includes('join=') || search.includes('lab=')) setView('student');
+    }
   }, []);
 
   const changeRole = () => {

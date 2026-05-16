@@ -5,7 +5,10 @@ import {
   loadStudentJoined,
   saveStudentJoined,
   loadInstructorClasses,
+  saveInstructorClasses,
   findLabByPin,
+  readSharedLabCode,
+  mergeSharedLab,
   type StudentJoinedEntry,
   type InstructorClass,
 } from '@/app/types/classes';
@@ -24,6 +27,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
   const [classes, setClasses] = useState<InstructorClass[]>([]);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
+  const [pinNotice, setPinNotice] = useState('');
   const [feedbackFor, setFeedbackFor] = useState<StudentJoinedEntry | null>(null);
 
   const openLab = (entry: StudentJoinedEntry) => {
@@ -44,8 +48,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
   });
 
   useEffect(() => {
-    const instructorClasses = loadInstructorClasses();
-    setClasses(instructorClasses);
+    let instructorClasses = loadInstructorClasses();
     let entries = loadStudentJoined();
     entries = entries.map((e) => {
       const cls = instructorClasses.find((c) => c.id === e.classId);
@@ -53,7 +56,21 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
       return { ...e, feedback: lab?.feedbackFromInstructor ?? e.feedback };
     });
     const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const sharedLabCode = params?.get('lab')?.trim();
     const joinPin = params?.get('join')?.trim();
+
+    if (sharedLabCode) {
+      const shared = readSharedLabCode(sharedLabCode);
+      if (shared) {
+        instructorClasses = mergeSharedLab(instructorClasses, shared);
+        saveInstructorClasses(instructorClasses);
+        setPinNotice(`Lab loaded: ${shared.lab.scenario.title}. Enter the PIN from your instructor to join.`);
+      } else {
+        setPinError('This student link is invalid. Ask your instructor to copy it again.');
+      }
+    }
+
+    setClasses(instructorClasses);
     if (joinPin && instructorClasses.length > 0) {
       const found = findLabByPin(instructorClasses, joinPin);
       if (found) {
@@ -73,13 +90,16 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
 
   const handleJoinWithPin = () => {
     setPinError('');
-    const found = findLabByPin(classes, pin);
+    const latestClasses = loadInstructorClasses();
+    setClasses(latestClasses);
+    const found = findLabByPin(latestClasses, pin);
     if (!found) {
-      setPinError('Invalid or expired PIN.');
+      setPinError('Invalid or expired PIN. If your instructor is on another device, ask for the student link.');
       return;
     }
     const existingEntry = joined.find((j) => j.classId === found.class.id && j.labId === found.lab.id);
     const entry = entryFromFoundLab(found, existingEntry?.joinedAt);
+    setPinNotice('');
     if (existingEntry) {
       const next = joined.map((j) => (j.classId === entry.classId && j.labId === entry.labId ? entry : j));
       setJoined(next);
@@ -301,6 +321,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
             Join
           </button>
         </div>
+        {pinNotice && <p className="text-sm text-emerald-300 mt-2">{pinNotice}</p>}
         {pinError && <p className="text-sm text-red-400 mt-2">{pinError}</p>}
       </div>
 
