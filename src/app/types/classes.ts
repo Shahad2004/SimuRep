@@ -194,6 +194,22 @@ export function saveLabPerformanceResult(result: LabPerformanceResult): void {
   window.localStorage.setItem(LAB_PERFORMANCE_RESULTS_KEY, JSON.stringify([result, ...results]));
 }
 
+export function findLabById(classes: InstructorClass[], labId: string): { class: InstructorClass; lab: Lab } | null {
+  for (const c of classes) {
+    const lab = c.labs.find((l) => l.id === labId);
+    if (lab) return { class: c, lab };
+  }
+  return null;
+}
+
+export function getLabPinFromClasses(classes: InstructorClass[], labId: string): string {
+  for (const c of classes) {
+    const lab = c.labs.find((l) => l.id === labId);
+    if (lab) return lab.pin;
+  }
+  return '';
+}
+
 export function findLabByPin(classes: InstructorClass[], pin: string): { class: InstructorClass; lab: Lab } | null {
   const trimmed = pin.trim();
   for (const c of classes) {

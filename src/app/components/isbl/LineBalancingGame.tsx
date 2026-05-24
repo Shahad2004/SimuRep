@@ -1,18 +1,31 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   Coins,
   Factory,
   ListOrdered,
   Lock,
   LogOut,
+  Route,
   RotateCcw,
   Send,
+  Shirt,
   Timer,
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { LineBalancingFlowPanel } from './LineBalancingFlowPanel';
+import { LineBalancingSolutionComparison } from './LineBalancingSolutionComparison';
+import { getOrCreatePlayerId, patchLivePlayerProgress, upsertLivePlayer } from '@/app/services/liveSessionSync';
+import type { StudentProgressLevel } from '@/app/types/liveSession';
+import {
+  analyzeStudentLine,
+  buildStationPath,
+  calcMinStations,
+  computeFlowMetrics,
+} from './lineBalancingEngine';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   saveLabPerformanceResult,
@@ -28,11 +41,8 @@ import girlPointLeft from '@/assets/line-balancing/character/girl_point_left.png
 import girlSuccess from '@/assets/line-balancing/character/girl_success.png';
 import girlThink from '@/assets/line-balancing/character/girl_think.png';
 
-import wsCutting from '@/assets/line-balancing/workstations/ws_cutting.png';
-import wsPacking from '@/assets/line-balancing/workstations/ws_packing.png';
-import wsQuality from '@/assets/line-balancing/workstations/ws_quality.png';
-import wsSewing from '@/assets/line-balancing/workstations/ws_sewing.png';
-import stationEmpty from '@/assets/line-balancing/workstations/station_empty.png';
+import { EmptyWorkstationVisual } from './EmptyWorkstationVisual';
+import { getWorkstationImageUrl, workstationTypeIndexForOrder } from './workstationAssets';
 
 import taskCutting from '@/assets/line-balancing/tasks/task_cutting.png';
 import taskPacking from '@/assets/line-balancing/tasks/task_packing.png';
@@ -43,7 +53,11 @@ interface LineBalancingGameProps {
   scenario: ScenarioDefinition;
   lineBalancing?: LineBalancingScenario;
   studentEntry?: StudentJoinedEntry;
+  labPin?: string;
+  displayName?: string;
   onLeave: () => void;
+  /** Called when student finishes Level 2 — routes to waiting room (not Level 3 immediately). */
+  onLevel2Complete?: () => void;
 }
 
 const TYPE_MS_PER_CHAR = 72;
@@ -366,7 +380,18 @@ function useGameSoundEffects(muted: boolean) {
   return playSound;
 }
 
-type Phase = 'briefing' | 'stations' | 'cost' | 'assign' | 'results';
+type Phase =
+  | 'briefing'
+  | 'stations'
+  | 'cost'
+  | 'assign'
+  | 'results'
+  | 'flow_intro'
+  | 'flow_simulate'
+  | 'flow_reassign'
+  | 'l2_complete';
+
+type GameLevel = 1 | 2 | 3;
 
 type TutorialStep =
   | 'welcome'
@@ -374,7 +399,11 @@ type TutorialStep =
   | 'cost'
   | 'assign_intro'
   | 'assign_review'
-  | 'results';
+  | 'results'
+  | 'flow_intro'
+  | 'flow_simulate'
+  | 'flow_reassign'
+  | 'l2_complete';
 
 type StationSlot = { id: string };
 
@@ -458,32 +487,12 @@ function normalizeLineBalancingScenario(raw: LineBalancingScenario | undefined):
   return { cycleTimeSec, workstationCostCoins: FIXED_WORKSTATION_COST_COINS, tasks: FIXED_LINE_BALANCING_TASKS };
 }
 
-function calcMinStations(totalProcessingTime: number, cycleTime: number) {
-  const t = Number.isFinite(totalProcessingTime) ? totalProcessingTime : 0;
-  const c = Number.isFinite(cycleTime) && cycleTime > 0 ? cycleTime : 1;
-  return Math.ceil(t / c);
-}
-
-function lcrAssignment(tasks: LineBalancingTask[], cycleTimeSec: number) {
-  // Largest Candidate Rule (no precedence): sort by time desc, pack into stations greedily.
-  const sorted = [...tasks].sort((a, b) => b.timeSec - a.timeSec);
-  const stations: Array<{ id: string; tasks: LineBalancingTask[]; loadSec: number }> = [];
-  for (const t of sorted) {
-    let placed = false;
-    for (const st of stations) {
-      if (st.loadSec + t.timeSec <= cycleTimeSec) {
-        st.tasks.push(t);
-        st.loadSec += t.timeSec;
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      stations.push({ id: `opt_${stations.length + 1}`, tasks: [t], loadSec: t.timeSec });
-    }
-  }
-  return stations;
-}
+type LevelSnapshot = {
+  stations: StationSlot[];
+  assignment: Record<string, string[]>;
+  efficiency: number;
+  idleTimeSec: number;
+};
 
 function stationAccent(idx: number) {
   const accents = [
@@ -497,7 +506,15 @@ function stationAccent(idx: number) {
   return accents[idx % accents.length];
 }
 
-export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLeave }: LineBalancingGameProps) {
+export function LineBalancingGame({
+  scenario,
+  lineBalancing,
+  studentEntry,
+  labPin = '',
+  displayName = 'Student',
+  onLeave,
+  onLevel2Complete,
+}: LineBalancingGameProps) {
   const lb = useMemo(() => normalizeLineBalancingScenario(lineBalancing), [lineBalancing]);
 
   const cycleTimeSec = lb.cycleTimeSec;
@@ -511,6 +528,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
   const totalProcessingTimeSec = useMemo(() => sum(tasks.map((t) => t.timeSec)), [tasks]);
   const minStations = useMemo(() => calcMinStations(totalProcessingTimeSec, cycleTimeSec), [totalProcessingTimeSec, cycleTimeSec]);
 
+  const [gameLevel, setGameLevel] = useState<GameLevel>(1);
   const [phase, setPhase] = useState<Phase>('briefing');
   const [tutorialStep, setTutorialStep] = useState<TutorialStep>('welcome');
 
@@ -521,7 +539,13 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
   const [stations, setStations] = useState<StationSlot[]>([]);
   const [assignment, setAssignment] = useState<Record<string, string[]>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [level1Snapshot, setLevel1Snapshot] = useState<LevelSnapshot | null>(null);
+  const [level2Submitted, setLevel2Submitted] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const playerId = useMemo(
+    () => (studentEntry && labPin ? getOrCreatePlayerId(studentEntry.labId) : null),
+    [studentEntry?.labId, labPin],
+  );
   const [feedbackToast, setFeedbackToast] = useState<{ text: string; variant: 'good' | 'bad' } | null>(null);
   const [timeExpired, setTimeExpired] = useState(false);
   const [sequenceAlert, setSequenceAlert] = useState<SequenceAlert | null>(null);
@@ -578,11 +602,50 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     return Number.isFinite(idle) ? Math.max(0, idle) : 0;
   }, [stations.length, cycleTimeSec, totalProcessingTimeSec]);
 
-  const optimal = useMemo(() => lcrAssignment(tasks, cycleTimeSec), [tasks, cycleTimeSec]);
-  const optimalStationsCount = optimal.length;
+  const studentAnalysis = useMemo(() => {
+    const loads = stations.map((s) => stationLoads[s.id] ?? 0);
+    return analyzeStudentLine(
+      loads,
+      cycleTimeSec,
+      efficiency,
+      idleTimeSec,
+      minStations,
+      stations.length,
+      anyOverloaded,
+    );
+  }, [
+    stations,
+    stationLoads,
+    cycleTimeSec,
+    efficiency,
+    idleTimeSec,
+    minStations,
+    anyOverloaded,
+  ]);
+
+  const level1FlowMetrics = useMemo(() => {
+    if (!level1Snapshot) return null;
+    const path = buildStationPath(
+      TASK_SEQUENCE,
+      level1Snapshot.assignment,
+      level1Snapshot.stations.map((s) => s.id),
+    );
+    const labelMap = new Map(tasks.map((t) => [t.id, t.label]));
+    return computeFlowMetrics(TASK_SEQUENCE, labelMap, path);
+  }, [level1Snapshot, tasks]);
+
+  const currentFlowMetrics = useMemo(() => {
+    const path = buildStationPath(
+      TASK_SEQUENCE,
+      assignment,
+      stations.map((s) => s.id),
+    );
+    const labelMap = new Map(tasks.map((t) => [t.id, t.label]));
+    return computeFlowMetrics(TASK_SEQUENCE, labelMap, path);
+  }, [assignment, stations, tasks]);
 
   const canSubmit = useMemo(() => {
-    if (phase !== 'assign') return false;
+    if (phase !== 'assign' && phase !== 'flow_reassign') return false;
     if (!allTasksAssigned) return false;
     if (anyOverloaded) return false;
     return true;
@@ -592,21 +655,23 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     if (phase === 'briefing') return girlExplain;
     if (phase === 'stations') return girlThink;
     if (phase === 'cost') return girlExplain;
-    if (phase === 'assign') {
+    if (phase === 'assign' || phase === 'flow_reassign') {
       if (feedbackToast?.variant === 'bad') return girlThink;
       if (anyOverloaded) return girlThink;
       if (allTasksAssigned && !anyOverloaded) return girlSuccess;
       return girlPointLeft;
     }
-    if (phase === 'results') return girlSuccess;
+    if (phase === 'results' || phase === 'l2_complete') return girlSuccess;
+    if (phase === 'flow_simulate' && (level1FlowMetrics?.backtrackingCount ?? 0) > 0) return girlThink;
+    if (phase === 'flow_intro' || phase === 'flow_reassign') return girlExplain;
     return girlIdle;
-  }, [phase, anyOverloaded, allTasksAssigned, feedbackToast?.variant]);
+  }, [phase, anyOverloaded, allTasksAssigned, feedbackToast?.variant, level1FlowMetrics?.backtrackingCount]);
 
   const scriptLines = useMemo(() => {
     switch (tutorialStep) {
       case 'welcome':
         return [
-          'Welcome to Virtual Lab.',
+          'Welcome to Virtual Lab — Level 1: Line Balancing.',
           'Today you are running a small T-shirt factory line.',
           'Each shirt moves from cutting to sewing, then finishing and packing.',
           'If sewing takes too long, shirts wait in a pile. If packing has no shirts, that station becomes idle.',
@@ -645,14 +710,42 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
         ];
       case 'results':
         return [
-          'Here’s how you did.',
-          'If your line isn’t perfectly balanced, don’t worry.',
-          'Try adjusting task distribution next round to improve efficiency.',
-          'The better you balance your line, the more rewards you earn.',
-          'And remember… smart decisions now = more bonuses later!',
+          'Level 1 complete — here is your balancing feedback.',
+          'Valid does not always mean optimal in industry.',
+          'Read why your line is strong or weak, then compare with the recommended solution.',
+          'When ready, continue to Level 2 to see how the shirt moves between stations.',
+        ];
+      case 'flow_intro':
+        return [
+          'Level 2: Production flow.',
+          'A balanced line can still be inefficient if the shirt travels backward.',
+          'Watch the animation — green means forward flow, red means backtracking waste.',
+          'Then rearrange tasks to keep the workflow moving forward smoothly.',
+        ];
+      case 'flow_simulate':
+        return level1FlowMetrics && level1FlowMetrics.backtrackingCount > 0
+          ? [
+              'See the red lines? The shirt returned to an earlier workstation.',
+              'That is transportation waste — extra movement without adding value.',
+              'Industrial engineers design lines so work flows forward, not backward.',
+            ]
+          : [
+              'Your shirt path moves forward between stations — good lean flow.',
+              'Still check whether you can reduce total transfers while staying balanced.',
+            ];
+      case 'flow_reassign':
+        return [
+          'Improve production flow while keeping cycle time and balance rules.',
+          'Try grouping sequential tasks on the same or later stations.',
+          'Submit when every station is balanced and all tasks are assigned.',
+        ];
+      case 'l2_complete':
+        return [
+          'Level 2 complete! You improved production flow on your Nashama line.',
+          'Level 3 is the World Cup factory challenge — balance and flow together under pressure.',
         ];
     }
-  }, [tutorialStep, cycleTimeSec, workstationCostCoins, totalProcessingTimeSec, minStations]);
+  }, [tutorialStep, cycleTimeSec, workstationCostCoins, totalProcessingTimeSec, minStations, level1FlowMetrics]);
 
   const dialogueScriptKey = `${phase}:${tutorialStep}`;
   const { lineIndex, charIndex, skipped, skipTyping, isTypingComplete, effectiveLines } = useTypingLines(scriptLines, dialogueScriptKey);
@@ -662,13 +755,13 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     !skipped && lineIndex < effectiveLines.length && (!isTypingComplete || charIndex < typingLineFull.length);
 
   useEffect(() => {
-    if (phase === 'briefing') return;
+    if (phase === 'briefing' || phase === 'flow_intro') return;
     const t = window.setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
     return () => window.clearInterval(t);
   }, [phase]);
 
   useEffect(() => {
-    if (phase === 'briefing' || phase === 'results') return;
+    if (phase === 'briefing' || phase === 'results' || phase === 'l2_complete') return;
     if (secondsLeft > 0) return;
     if (timeExpiredNotifiedRef.current) return;
 
@@ -689,7 +782,29 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     }
   }, [phase, secondsLeft, playSoundEffect]);
 
+  const syncProgress = (progress: StudentProgressLevel) => {
+    if (!studentEntry || !labPin || !playerId) return;
+    void upsertLivePlayer(studentEntry.labId, labPin, {
+      playerId,
+      displayName,
+      progress,
+      joinedAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+    });
+  };
+
+  useEffect(() => {
+    if (studentEntry && labPin && playerId) syncProgress('level1_active');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentEntry?.labId, labPin, playerId]);
+
+  useEffect(() => {
+    if (gameLevel === 2 && phase !== 'briefing') syncProgress('level2_active');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameLevel]);
+
   const reset = () => {
+    setGameLevel(1);
     setPhase('briefing');
     setTutorialStep('welcome');
     setSecondsLeft(195);
@@ -697,6 +812,8 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     setStations([]);
     setAssignment({});
     setSubmitted(false);
+    setLevel1Snapshot(null);
+    setLevel2Submitted(false);
     setShowAnalytics(false);
     setFeedbackToast(null);
     setTimeExpired(false);
@@ -704,6 +821,24 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     timeExpiredNotifiedRef.current = false;
     if (feedbackTimerRef.current != null) window.clearTimeout(feedbackTimerRef.current);
     feedbackTimerRef.current = null;
+  };
+
+  const startLevel2 = () => {
+    setGameLevel(2);
+    setPhase('flow_intro');
+    setTutorialStep('flow_intro');
+    setShowAnalytics(false);
+    syncProgress('level2_active');
+  };
+
+  const proceedToFlowSimulate = () => {
+    setPhase('flow_simulate');
+    setTutorialStep('flow_simulate');
+  };
+
+  const proceedToFlowReassign = () => {
+    setPhase('flow_reassign');
+    setTutorialStep('flow_reassign');
   };
 
   const goNextFromBriefing = () => {
@@ -768,7 +903,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     playSoundEffect(getTaskSoundEffect(task));
     setAssignment((prev) => {
       const next = applyTaskDrop(stations, prev, stationId, payload);
-      if (phase === 'assign') {
+      if (phase === 'assign' || phase === 'flow_reassign') {
         const load = loadForStation(next, stationId, tasks);
         const overloaded = load > cycleTimeSec;
         window.queueMicrotask(() =>
@@ -803,6 +938,17 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
   };
 
   const handleSubmit = () => {
+    if (phase === 'flow_reassign') {
+      setLevel2Submitted(true);
+      setPhase('l2_complete');
+      setTutorialStep('l2_complete');
+      setTimeExpired(false);
+      if (studentEntry && labPin && playerId) {
+        void patchLivePlayerProgress(studentEntry.labId, labPin, playerId, { progress: 'waiting_l3' });
+      }
+      return;
+    }
+
     if (studentEntry) {
       saveLabPerformanceResult({
         id: `result_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
@@ -820,10 +966,17 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
         },
       });
     }
+    setLevel1Snapshot({
+      stations: stations.map((s) => ({ ...s })),
+      assignment: JSON.parse(JSON.stringify(assignment)) as Record<string, string[]>,
+      efficiency,
+      idleTimeSec,
+    });
     setSubmitted(true);
     setPhase('results');
     setTutorialStep('results');
     setTimeExpired(false);
+    syncProgress('level1_complete');
   };
 
   const proceedToCostPhase = () => {
@@ -844,7 +997,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
   };
 
   useEffect(() => {
-    if (phase !== 'assign') return;
+    if (phase !== 'assign' && phase !== 'flow_reassign') return;
     showAssignReviewIfReady();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, allTasksAssigned, anyOverloaded]);
@@ -853,25 +1006,27 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
     if (stations.length <= 0) return 'Build your line';
     if (phase === 'stations') return `${stations.length} workstation${stations.length === 1 ? '' : 's'}`;
     if (phase === 'cost') return 'Cost check';
-    if (phase === 'assign') {
+    if (phase === 'assign' || phase === 'flow_reassign') {
       if (anyOverloaded) return 'Overloaded';
       if (!allTasksAssigned) return 'Assign tasks';
       return 'Balanced!';
     }
-    if (phase === 'results') return 'Submitted';
+    if (phase === 'results') return 'Level 1 complete';
+    if (phase === 'flow_intro') return 'Level 2: Flow';
+    if (phase === 'flow_simulate') return 'Watch shirt path';
+    if (phase === 'l2_complete') return 'Level 2 complete';
     return 'Line Balancing';
   }, [stations.length, phase, anyOverloaded, allTasksAssigned]);
 
   const headerStationImages = useMemo(() => {
     if (stations.length <= 0) return [];
-    const imgs = [wsCutting, wsSewing, wsQuality, wsPacking];
-    return stations.map((_, idx) => imgs[idx % imgs.length]);
+    return stations.map((_, idx) => getWorkstationImageUrl(workstationTypeIndexForOrder(idx)));
   }, [stations.length, stations]);
 
   return (
-    <div className="relative min-h-screen w-full bg-gradient-to-b from-slate-950 via-indigo-950/30 to-slate-950">
+    <div className="flex h-dvh w-full flex-col overflow-hidden bg-gradient-to-b from-slate-950 via-indigo-950/30 to-slate-950">
       {/* Top bar */}
-      <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-slate-700/40">
+      <div className="fixed inset-x-0 top-0 z-50 shrink-0 border-b border-slate-700/40 bg-slate-950/80 backdrop-blur-md">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3">
@@ -895,7 +1050,11 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                   Round <span className="text-slate-200 font-semibold">{round}</span>
                 </span>
                 <span className="px-3 py-1.5 rounded-full border border-slate-700 bg-slate-900/70 text-slate-300">
-                  Objective: <span className="text-slate-100 font-semibold">Balance {scenario.productName ?? 'Factory'}</span>
+                  Level <span className="text-cyan-200 font-semibold">{gameLevel}</span>
+                  {' · '}
+                  <span className="text-slate-100 font-semibold">
+                    {gameLevel === 1 ? 'Line balancing' : gameLevel === 2 ? 'Production flow' : 'World Cup'}
+                  </span>
                 </span>
               </div>
             </div>
@@ -963,7 +1122,8 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-6 space-y-6">
+      <div className="min-h-0 flex-1 overflow-y-auto pt-[4.75rem]">
+      <div className="container mx-auto space-y-6 px-4 py-6">
         {/* Header panel like screenshot */}
         <div className="bg-slate-900/70 border border-slate-700 rounded-2xl p-5">
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -1013,18 +1173,20 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                 </div>
               </div>
 
-              <button
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                className={`px-5 py-2 rounded-xl font-semibold text-sm border transition-all flex items-center gap-2 ${
-                  canSubmit
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 hover:bg-amber-400'
-                    : 'bg-slate-800 text-slate-400 border-slate-700 cursor-not-allowed'
-                }`}
-              >
-                SUBMIT DECISIONS
-                <Send className="w-4 h-4" />
-              </button>
+              {(phase === 'assign' || phase === 'flow_reassign') && (
+                <button
+                  onClick={handleSubmit}
+                  disabled={!canSubmit}
+                  className={`px-5 py-2 rounded-xl font-semibold text-sm border transition-all flex items-center gap-2 ${
+                    canSubmit
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 hover:bg-amber-400'
+                      : 'bg-slate-800 text-slate-400 border-slate-700 cursor-not-allowed'
+                  }`}
+                >
+                  {phase === 'flow_reassign' ? 'SUBMIT LEVEL 2' : 'SUBMIT DECISIONS'}
+                  <Send className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1160,11 +1322,14 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                   <div className="flex items-center gap-2">
                     <div
                       draggable
-                      onDragStart={(e) => e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'station' } satisfies DragPayload))}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'station' } satisfies DragPayload));
+                        e.dataTransfer.setDragImage(e.currentTarget, 40, 28);
+                      }}
                       className="cursor-grab active:cursor-grabbing select-none rounded-xl border border-slate-700 bg-slate-950/40 px-3 py-2 flex items-center gap-2"
                       title="Drag to add a workstation"
                     >
-                      <img src={stationEmpty} alt="" className="w-8 h-8 object-contain" />
+                      <EmptyWorkstationVisual className="w-12 h-12 shrink-0 pointer-events-none" />
                       <div className="text-xs text-slate-200 font-semibold">Workstation</div>
                     </div>
                     <button
@@ -1200,7 +1365,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                         {st ? (
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-3">
-                              <img src={headerStationImages[idx % headerStationImages.length] ?? stationEmpty} alt="" className="w-10 h-10 object-contain" />
+                              <img src={headerStationImages[idx % headerStationImages.length]} alt="" className="w-14 h-14 object-contain" draggable={false} />
                               <div className="leading-tight">
                                 <div className={`text-sm font-semibold ${acc.text}`}>Station {idx + 1}</div>
                                 <div className="text-[11px] text-slate-400">Ready for tasks</div>
@@ -1215,7 +1380,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                           </div>
                         ) : (
                           <div className="flex items-center gap-3">
-                            <img src={stationEmpty} alt="" className="w-10 h-10 object-contain opacity-70" />
+                            <EmptyWorkstationVisual className="w-14 h-14 shrink-0 opacity-90" />
                             <div className="text-sm text-slate-400">Drop workstation here</div>
                           </div>
                         )}
@@ -1277,7 +1442,34 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
               </motion.div>
             )}
 
-            {phase === 'assign' && (
+            {(phase === 'assign' || phase === 'flow_reassign') && (
+              <div className="space-y-4">
+                {phase === 'flow_reassign' && (
+                  <div className="bg-slate-900/70 border border-cyan-500/25 rounded-2xl p-4">
+                    <div className="text-sm font-semibold text-cyan-100">Level 2 — Improve production flow</div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Live flow metrics update as you move tasks. Submit when balanced.
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                        <div className="text-[10px] text-slate-500">Backtracking</div>
+                        <div className="text-lg font-bold text-rose-300 tabular-nums">{currentFlowMetrics.backtrackingCount}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                        <div className="text-[10px] text-slate-500">Transfers</div>
+                        <div className="text-lg font-bold text-white tabular-nums">{currentFlowMetrics.totalTransfers}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                        <div className="text-[10px] text-slate-500">Transport waste</div>
+                        <div className="text-lg font-bold text-amber-300 tabular-nums">{currentFlowMetrics.transportationWaste}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                        <div className="text-[10px] text-slate-500">Flow efficiency</div>
+                        <div className="text-lg font-bold text-emerald-300 tabular-nums">{currentFlowMetrics.flowEfficiencyPct}%</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Tasks */}
                 <div
@@ -1417,7 +1609,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-3">
-                              <img src={headerStationImages[idx % headerStationImages.length] ?? stationEmpty} alt="" className="w-10 h-10 object-contain" />
+                              <img src={headerStationImages[idx % headerStationImages.length]} alt="" className="w-14 h-14 object-contain" draggable={false} />
                               <div className="leading-tight">
                                 <div className={`text-sm font-semibold ${acc.text}`}>Workstation {idx + 1}</div>
                                 <div className="text-[11px] text-slate-400 tabular-nums">
@@ -1487,15 +1679,26 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                   </div>
                 </div>
               </div>
+              </div>
             )}
 
             {phase === 'results' && (
               <div className="bg-slate-900/70 border border-slate-700 rounded-2xl p-6">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="text-lg font-semibold text-white">Results</div>
-                  <div className="text-xs text-slate-400">
-                    Submitted <span className="text-slate-200 font-semibold">{submitted ? 'Yes' : 'No'}</span>
+                  <div>
+                    <div className="text-lg font-semibold text-white">Level 1 — Balancing results</div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Balance score <span className="text-cyan-200 font-semibold tabular-nums">{studentAnalysis.balanceScore}</span>/100
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={startLevel2}
+                    className="px-4 py-2 rounded-xl bg-cyan-600 text-white font-semibold text-sm hover:bg-cyan-500 flex items-center gap-2"
+                  >
+                    <Route className="w-4 h-4" />
+                    Continue to Level 2
+                  </button>
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1516,58 +1719,169 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-4">
-                    <div className="text-sm font-semibold text-white">Your line</div>
-                    <div className="mt-2 space-y-2">
-                      {stations.map((st, idx) => {
-                        const ids = assignment[st.id] ?? [];
-                        const load = stationLoads[st.id] ?? 0;
-                        return (
-                          <div key={st.id} className="rounded-xl border border-slate-800 bg-slate-900/30 p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="text-xs font-semibold text-slate-200">Station {idx + 1}</div>
-                              <div className="text-[11px] text-slate-400 tabular-nums">{load}s / {cycleTimeSec}s</div>
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {ids.map((id) => {
-                                const t = tasks.find((x) => x.id === id);
-                                if (!t) return null;
-                                return <span key={id} className="text-[11px] px-2 py-1 rounded-full bg-slate-800 text-slate-200 border border-slate-700">{t.label}</span>;
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                <div className="mt-4 rounded-xl border border-cyan-500/25 bg-cyan-950/15 p-4">
+                  <div className="text-sm font-semibold text-cyan-100">Why your solution looks this way</div>
+                  <ul className="mt-3 space-y-2">
+                    {studentAnalysis.insights.map((insight) => (
+                      <li
+                        key={insight.id}
+                        className={`rounded-lg border px-3 py-2 text-sm ${
+                          insight.tone === 'good'
+                            ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-100'
+                            : insight.tone === 'bad'
+                              ? 'border-rose-500/30 bg-rose-950/20 text-rose-100'
+                              : 'border-amber-500/30 bg-amber-950/20 text-amber-100'
+                        }`}
+                      >
+                        <span className="font-semibold">{insight.label}</span>
+                        <span className="text-slate-300/90"> — {insight.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-                  <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold text-white">Optimal (auto)</div>
-                      <div className="text-[11px] text-slate-400">
-                        LCR stations: <span className="text-slate-200 font-semibold tabular-nums">{optimalStationsCount}</span>
-                      </div>
-                    </div>
-                    <div className="mt-2 space-y-2">
-                      {optimal.map((st, idx) => (
-                        <div key={st.id} className="rounded-xl border border-slate-800 bg-slate-900/30 p-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs font-semibold text-slate-200">Station {idx + 1}</div>
-                            <div className="text-[11px] text-slate-400 tabular-nums">{st.loadSec}s / {cycleTimeSec}s</div>
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {st.tasks.map((t) => (
-                              <span key={t.id} className="text-[11px] px-2 py-1 rounded-full bg-slate-800 text-slate-200 border border-slate-700">{t.label}</span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3 text-[11px] text-slate-500">
-                      Note: This optimal is a heuristic (Largest Candidate Rule) used for learning feedback.
-                    </div>
+                <div className="mt-5">
+                  <LineBalancingSolutionComparison
+                    title="Level 1 — Your layout vs industrial optimal"
+                    tasks={tasks}
+                    taskOrder={TASK_SEQUENCE}
+                    cycleTimeSec={cycleTimeSec}
+                    playerStationIds={(level1Snapshot?.stations ?? stations).map((s) => s.id)}
+                    playerAssignment={level1Snapshot?.assignment ?? assignment}
+                    showFlow={false}
+                  />
+                </div>
+              </div>
+            )}
+
+            {phase === 'flow_intro' && (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-900/70 border border-slate-700 rounded-2xl p-6">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/30 p-3">
+                    <Shirt className="w-8 h-8 text-cyan-300" />
                   </div>
+                  <div>
+                    <div className="text-xs font-semibold text-cyan-300 uppercase tracking-wide">Level 2</div>
+                    <div className="text-lg font-semibold text-white mt-1">A balanced line can still be inefficient</div>
+                    <p className="text-sm text-slate-300 mt-2 max-w-2xl">
+                      You balanced workloads in Level 1. Now watch how the shirt actually travels between workstations in task
+                      sequence. Backward movement (red) is transportation waste in lean manufacturing.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={proceedToFlowSimulate}
+                    disabled={!isTypingComplete}
+                    className={`px-5 py-2.5 rounded-xl font-semibold flex items-center gap-2 ${
+                      isTypingComplete
+                        ? 'bg-cyan-600 text-white hover:bg-cyan-500'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    Watch shirt movement
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {phase === 'flow_simulate' && level1FlowMetrics && (
+              <div className="bg-slate-900/70 border border-slate-700 rounded-2xl p-6 space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="text-lg font-semibold text-white">Production flow simulation</div>
+                    <p className="text-sm text-slate-400 mt-1">Based on your Level 1 assignment — shirt path in task order</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Backtracking</div>
+                    <div className="text-2xl font-bold text-rose-300 tabular-nums">{level1FlowMetrics.backtrackingCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Total transfers</div>
+                    <div className="text-2xl font-bold text-white tabular-nums">{level1FlowMetrics.totalTransfers}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Transportation waste</div>
+                    <div className="text-2xl font-bold text-amber-300 tabular-nums">{level1FlowMetrics.transportationWaste}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Flow efficiency</div>
+                    <div className="text-2xl font-bold text-emerald-300 tabular-nums">{level1FlowMetrics.flowEfficiencyPct}%</div>
+                  </div>
+                </div>
+
+                <LineBalancingFlowPanel
+                  stationCount={level1Snapshot?.stations.length ?? stations.length}
+                  flowMetrics={level1FlowMetrics}
+                  stationIds={level1Snapshot?.stations.map((s) => s.id)}
+                  assignment={level1Snapshot?.assignment}
+                  tasks={tasks}
+                  taskOrder={TASK_SEQUENCE}
+                />
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={proceedToFlowReassign}
+                    className="px-5 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-semibold hover:bg-amber-400 flex items-center gap-2"
+                  >
+                    Improve flow — rearrange tasks
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {phase === 'l2_complete' && (
+              <div className="bg-slate-900/70 border border-slate-700 rounded-2xl p-6">
+                <div className="text-lg font-semibold text-white">Level 2 complete</div>
+                <p className="text-sm text-slate-400 mt-2">
+                  You optimized production flow. Ready for the Nashama World Cup final challenge?
+                </p>
+                <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Flow efficiency</div>
+                    <div className="text-2xl font-bold text-emerald-300 tabular-nums">{currentFlowMetrics.flowEfficiencyPct}%</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Backtracking</div>
+                    <div className="text-2xl font-bold text-rose-300 tabular-nums">{currentFlowMetrics.backtrackingCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Transport waste</div>
+                    <div className="text-2xl font-bold text-amber-300 tabular-nums">{currentFlowMetrics.transportationWaste}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="text-[11px] text-slate-400">Balance</div>
+                    <div className="text-2xl font-bold text-white tabular-nums">{Math.round(efficiency * 100)}%</div>
+                  </div>
+                </div>
+                <div className="mt-5">
+                  <LineBalancingSolutionComparison
+                    title="Level 2 — Your line vs recommended (balance + flow)"
+                    tasks={tasks}
+                    taskOrder={TASK_SEQUENCE}
+                    cycleTimeSec={cycleTimeSec}
+                    playerStationIds={stations.map((s) => s.id)}
+                    playerAssignment={assignment}
+                    showFlow
+                  />
+                </div>
+
+                <div className="mt-5 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onLevel2Complete?.()}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-500 flex items-center gap-2"
+                  >
+                    <Shirt className="w-4 h-4" />
+                    Go to Level 3 waiting room
+                  </button>
                 </div>
               </div>
             )}
@@ -1790,18 +2104,65 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
                     Next
                   </button>
                 )}
-                {phase === 'assign' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setTutorialStep(allTasksAssigned && !anyOverloaded ? 'assign_review' : 'assign_intro')}
-                      className="px-4 py-2 rounded-xl bg-slate-900/60 border border-slate-700 text-slate-200 hover:bg-slate-800 font-semibold text-sm"
-                    >
-                      Hint
-                    </button>
-                  </>
+                {(phase === 'assign' || phase === 'flow_reassign') && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTutorialStep(
+                        phase === 'flow_reassign'
+                          ? 'flow_reassign'
+                          : allTasksAssigned && !anyOverloaded
+                            ? 'assign_review'
+                            : 'assign_intro',
+                      )
+                    }
+                    className="px-4 py-2 rounded-xl bg-slate-900/60 border border-slate-700 text-slate-200 hover:bg-slate-800 font-semibold text-sm"
+                  >
+                    Hint
+                  </button>
                 )}
                 {phase === 'results' && (
+                  <button
+                    type="button"
+                    onClick={startLevel2}
+                    className="px-4 py-2 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 font-semibold text-sm"
+                  >
+                    Level 2
+                  </button>
+                )}
+                {phase === 'flow_intro' && (
+                  <button
+                    type="button"
+                    onClick={proceedToFlowSimulate}
+                    disabled={!isTypingComplete}
+                    className={`px-4 py-2 rounded-xl font-semibold text-sm ${
+                      isTypingComplete
+                        ? 'bg-cyan-600 text-white hover:bg-cyan-500'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    Next
+                  </button>
+                )}
+                {phase === 'flow_simulate' && (
+                  <button
+                    type="button"
+                    onClick={proceedToFlowReassign}
+                    className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 hover:bg-amber-400 font-semibold text-sm"
+                  >
+                    Rearrange
+                  </button>
+                )}
+                {phase === 'l2_complete' && (
+                  <button
+                    type="button"
+                    onClick={() => onLevel2Complete?.()}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 font-semibold text-sm"
+                  >
+                    Waiting room
+                  </button>
+                )}
+                {(phase === 'results' || phase === 'l2_complete') && (
                   <button
                     type="button"
                     onClick={reset}
@@ -1817,7 +2178,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
       </div>
 
       <AnimatePresence>
-        {timeExpired && phase !== 'briefing' && phase !== 'results' && (
+        {timeExpired && phase !== 'briefing' && phase !== 'results' && phase !== 'l2_complete' && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1979,6 +2340,7 @@ export function LineBalancingGame({ scenario, lineBalancing, studentEntry, onLea
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 }

@@ -13,10 +13,7 @@ import {
   type InstructorClass,
 } from '@/app/types/classes';
 import girlExplain from '@/assets/line-balancing/character/girl_explain.png';
-import wsCutting from '@/assets/line-balancing/workstations/ws_cutting.png';
-import wsPacking from '@/assets/line-balancing/workstations/ws_packing.png';
-import wsQuality from '@/assets/line-balancing/workstations/ws_quality.png';
-import wsSewing from '@/assets/line-balancing/workstations/ws_sewing.png';
+import { getWorkstationImageUrl } from './workstationAssets';
 
 interface StudentHomeProps {
   onPlayLab: (entry: StudentJoinedEntry) => void;
@@ -212,7 +209,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
                       bar: ['25%', '66%', '66%'],
                       tone: 'bg-emerald-500',
                       note: 'cuts fabric panels',
-                      image: wsCutting,
+                      image: getWorkstationImageUrl(0),
                     },
                     {
                       name: 'Sewing',
@@ -220,7 +217,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
                       bar: ['55%', '100%', '100%'],
                       tone: 'bg-rose-500',
                       note: 'too much sleeve work',
-                      image: wsSewing,
+                      image: getWorkstationImageUrl(1),
                     },
                     {
                       name: 'Quality Check',
@@ -228,7 +225,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
                       bar: ['8%', '20%', '20%'],
                       tone: 'bg-amber-500',
                       note: 'waiting to inspect',
-                      image: wsQuality,
+                      image: getWorkstationImageUrl(2),
                     },
                     {
                       name: 'Packing',
@@ -236,7 +233,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
                       bar: ['12%', '30%', '30%'],
                       tone: 'bg-amber-500',
                       note: 'waiting for shirts',
-                      image: wsPacking,
+                      image: getWorkstationImageUrl(3),
                     },
                   ].map((station, idx) => (
                     <div

@@ -1,0 +1,16 @@
+{
+  "labId": "lab_1776707421306",
+  "pin": "684639",
+  "level3Status": "live",
+  "updatedAt": "2026-05-24T13:16:21.537Z",
+  "players": {
+    "player_1779537874504_2151": {
+      "playerId": "player_1779537874504_2151",
+      "displayName": "class · Student",
+      "progress": "level3_active",
+      "joinedAt": "2026-05-24T13:16:20.608Z",
+      "lastSeenAt": "2026-05-24T13:16:21.003Z"
+    }
+  },
+  "level3StartedAt": "2026-05-24T13:16:18.922Z"
+}

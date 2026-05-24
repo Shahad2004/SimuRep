@@ -27,6 +27,7 @@ import {
   type ProductionPlanningScenario,
   type LineBalancingScenario,
 } from '@/app/types/classes';
+import { InstructorLiveSessionPanel } from './InstructorLiveSessionPanel';
 
 interface LabTemplate {
   id: LabTemplateId;
@@ -564,6 +565,7 @@ export function InstructorDashboard() {
                               placeholder="Write feedback students will see after playing this lab."
                             />
                           </div>
+                          {lab.templateId === 'line-balancing' && <InstructorLiveSessionPanel lab={lab} />}
                         </div>
                       );
                     })

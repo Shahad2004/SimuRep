@@ -116,9 +116,9 @@ export function ProductionPlanningGame({ scenario, productionPlanning, onLeave }
   const gameComplete = periodHistory.length >= PERIODS;
 
   return (
-    <div className="relative min-h-screen w-full bg-gradient-to-b from-slate-950 via-indigo-950/25 to-slate-950">
+    <div className="flex h-dvh w-full flex-col overflow-hidden bg-gradient-to-b from-slate-950 via-indigo-950/25 to-slate-950">
       {/* Top bar – same structure as Strategy Planning */}
-      <div className="absolute top-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-700/40">
+      <div className="fixed inset-x-0 top-0 z-50 shrink-0 border-b border-slate-700/40 bg-slate-950/95 backdrop-blur-md">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
@@ -215,9 +215,10 @@ export function ProductionPlanningGame({ scenario, productionPlanning, onLeave }
         </div>
       </div>
 
+      <div className="relative min-h-0 flex-1 pt-20">
       {/* Main view – production flow (Order → Inventory → Demand) */}
       <div
-        className={`absolute inset-0 pt-20 pb-24 transition-all duration-500 flex flex-col items-center justify-center ${
+        className={`absolute inset-0 bottom-0 pb-24 transition-all duration-500 flex flex-col items-center justify-center ${
           gameState === 'decisions' || gameState === 'analytics' || gameState === 'reflection'
             ? 'blur-sm scale-95 brightness-50'
             : 'blur-0 scale-100 brightness-100'
@@ -507,6 +508,7 @@ export function ProductionPlanningGame({ scenario, productionPlanning, onLeave }
           </div>
         </motion.div>
       )}
+      </div>
     </div>
   );
 }
