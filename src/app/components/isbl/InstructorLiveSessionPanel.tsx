@@ -5,6 +5,7 @@ import type { Lab } from '@/app/types/classes';
 import { computeLiveSessionStats, sortLiveLeaderboard } from '@/app/types/liveSession';
 import { useLiveSession } from '@/app/hooks/useLiveSession';
 import { instructorEndLevel3, instructorStartLevel3 } from '@/app/services/liveSessionSync';
+import { getWaitingRoomCharacter, resolvePlayerDisplayLabel } from './waitingRoomCharacters';
 
 export function InstructorLiveSessionPanel({ lab }: { lab: Lab }) {
   const { session, refresh } = useLiveSession(lab.id, lab.pin);
@@ -97,12 +98,28 @@ export function InstructorLiveSessionPanel({ lab }: { lab: Lab }) {
           </div>
           <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
             {session &&
-              Object.values(session.players).map((p) => (
-                <div key={p.playerId} className="flex justify-between text-xs py-1 border-b border-slate-800/80">
-                  <span className="text-slate-300">{p.displayName}</span>
-                  <span className="text-slate-500">{p.progress.replace(/_/g, ' ')}</span>
-                </div>
-              ))}
+              Object.values(session.players).map((p) => {
+                const character = getWaitingRoomCharacter(p.characterId);
+                return (
+                  <motion.div
+                    key={p.playerId}
+                    layout
+                    className="flex items-center gap-2 text-xs py-1 border-b border-slate-800/80"
+                  >
+                    {character ? (
+                      <img
+                        src={character.imageUrl}
+                        alt=""
+                        className="w-7 h-7 rounded-full object-cover object-top border border-[#007A3D]/40 shrink-0"
+                      />
+                    ) : (
+                      <span className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 shrink-0" />
+                    )}
+                    <span className="text-slate-300 flex-1 truncate">{resolvePlayerDisplayLabel(p)}</span>
+                    <span className="text-slate-500 shrink-0">{p.progress.replace(/_/g, ' ')}</span>
+                  </motion.div>
+                );
+              })}
             {(!session || Object.keys(session.players).length === 0) && (
               <p className="text-xs text-slate-500">No students connected yet. Students must join with this PIN.</p>
             )}
@@ -118,18 +135,28 @@ export function InstructorLiveSessionPanel({ lab }: { lab: Lab }) {
             {leaderboard.length === 0 ? (
               <p className="text-xs text-slate-500">Scores appear when students play Level 3.</p>
             ) : (
-              leaderboard.map((p, i) => (
-                <motion.div
-                  key={p.playerId}
-                  layout
-                  className="flex justify-between text-xs py-1"
-                >
-                  <span className="text-slate-300">
-                    #{i + 1} {p.displayName}
-                  </span>
-                  <span className="font-bold text-amber-300 tabular-nums">{p.totalScore ?? 0}</span>
-                </motion.div>
-              ))
+              leaderboard.map((p, i) => {
+                const character = getWaitingRoomCharacter(p.characterId);
+                return (
+                  <motion.div
+                    key={p.playerId}
+                    layout
+                    className="flex items-center gap-2 text-xs py-1"
+                  >
+                    {character && (
+                      <img
+                        src={character.imageUrl}
+                        alt=""
+                        className="w-6 h-6 rounded-full object-cover object-top border border-amber-500/30 shrink-0"
+                      />
+                    )}
+                    <span className="text-slate-300 flex-1 truncate">
+                      #{i + 1} {resolvePlayerDisplayLabel(p)}
+                    </span>
+                    <span className="font-bold text-amber-300 tabular-nums">{p.totalScore ?? 0}</span>
+                  </motion.div>
+                );
+              })
             )}
           </div>
         </div>

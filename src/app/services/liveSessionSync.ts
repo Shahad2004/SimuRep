@@ -98,14 +98,69 @@ export async function patchLivePlayerProgress(
 ): Promise<LabLiveSession> {
   const session = await fetchSession(labId, pin);
   const existing = session.players[playerId];
-  if (!existing) return session;
-  session.players[playerId] = {
+  if (!existing) {
+    session.players[playerId] = {
+      playerId,
+      displayName: patch.displayName ?? 'Student',
+      progress: patch.progress ?? 'waiting_l3',
+      joinedAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+      ...patch,
+    };
+  } else {
+    session.players[playerId] = {
+      ...existing,
+      ...patch,
+      lastSeenAt: new Date().toISOString(),
+    };
+  }
+  session.updatedAt = new Date().toISOString();
+  if (session.level3Status === 'idle' && Object.values(session.players).some((p) => p.progress === 'waiting_l3')) {
+    session.level3Status = 'waiting';
+  }
+  return pushSession(session);
+}
+
+export type ClaimCharacterResult =
+  | { ok: true; session: LabLiveSession }
+  | { ok: false; session: LabLiveSession; error: string };
+
+/** Kahoot-style atomic character claim — fails if another student already picked it. */
+export async function claimWaitingRoomCharacter(
+  labId: string,
+  pin: string,
+  player: LabLivePlayer,
+): Promise<ClaimCharacterResult> {
+  const session = await fetchSession(labId, pin);
+
+  if (player.characterId) {
+    const conflict = Object.values(session.players).find(
+      (p) => p.playerId !== player.playerId && p.characterId === player.characterId,
+    );
+    if (conflict) {
+      const takenName = conflict.displayName;
+      return {
+        ok: false,
+        session,
+        error: `This player is already taken${takenName ? ` (${takenName})` : ''}. Pick another one!`,
+      };
+    }
+  }
+
+  const existing = session.players[player.playerId];
+  session.players[player.playerId] = {
     ...existing,
-    ...patch,
+    ...player,
+    joinedAt: existing?.joinedAt ?? player.joinedAt ?? new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
   session.updatedAt = new Date().toISOString();
-  return pushSession(session);
+  if (session.level3Status === 'idle') {
+    session.level3Status = 'waiting';
+  }
+
+  const pushed = await pushSession(session);
+  return { ok: true, session: pushed };
 }
 
 export async function instructorStartLevel3(labId: string, pin: string): Promise<LabLiveSession> {

@@ -255,12 +255,36 @@ export function LineBalancingFlowPanel({
 
   const visitedStations = useMemo(() => new Set(path.slice(0, step + 1)), [path, step]);
 
+  const showStaticPath = centersPx.length >= 2 && flowMetrics.segments.length > 0;
+
   return (
     <div className="space-y-4">
       <div
         ref={factoryRef}
         className="relative rounded-2xl border border-slate-700 bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950 p-4 min-h-[280px] overflow-hidden"
       >
+        {showStaticPath && (
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-10 overflow-visible" aria-hidden>
+            {flowMetrics.segments.map((seg, i) => {
+              const fromX = stationCenterPx(seg.from);
+              const toX = stationCenterPx(seg.to);
+              const midX = (fromX + toX) / 2;
+              const arcH = seg.backward ? 28 : 52;
+              const d = `M ${fromX} ${beltY} Q ${midX} ${beltY - arcH} ${toX} ${beltY}`;
+              return (
+                <path
+                  key={`static-${i}`}
+                  d={d}
+                  fill="none"
+                  stroke={seg.backward ? 'rgba(244,63,94,0.45)' : 'rgba(52,211,153,0.35)'}
+                  strokeWidth={seg.backward ? 2 : 1.5}
+                  strokeDasharray={seg.backward ? '5 4' : undefined}
+                  strokeLinecap="round"
+                />
+              );
+            })}
+          </svg>
+        )}
         {/* Conveyor belt */}
         <div className="absolute left-3 right-3 bottom-[4.5rem] h-3 rounded-full bg-gradient-to-r from-slate-800 via-slate-700 to-slate-800 border border-slate-600/80 shadow-inner">
           <motion.div

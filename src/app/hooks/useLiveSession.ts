@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { LabLiveSession } from '@/app/types/liveSession';
 import {
+  claimWaitingRoomCharacter,
   loadLiveSession,
   patchLivePlayerProgress,
   subscribeLiveSession,
@@ -57,5 +58,15 @@ export function useLiveSession(labId: string | undefined, pin: string | undefine
     [labId, pin],
   );
 
-  return { session, loading, refresh, registerPlayer, updateProgress };
+  const claimCharacter = useCallback(
+    async (player: LabLivePlayer) => {
+      if (!labId || !pin) return { ok: false as const, error: 'Session not ready' };
+      const result = await claimWaitingRoomCharacter(labId, pin, player);
+      setSession(result.session);
+      return result.ok ? { ok: true as const, session: result.session } : { ok: false as const, error: result.error };
+    },
+    [labId, pin],
+  );
+
+  return { session, loading, refresh, registerPlayer, updateProgress, claimCharacter };
 }

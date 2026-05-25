@@ -1,0 +1,15 @@
+{
+  "labId": "lab_1778526425002",
+  "pin": "761835",
+  "level3Status": "idle",
+  "updatedAt": "2026-05-24T19:06:49.176Z",
+  "players": {
+    "player_1779649609108_4941": {
+      "playerId": "player_1779649609108_4941",
+      "displayName": "New class · Student",
+      "progress": "level1_active",
+      "joinedAt": "2026-05-24T19:06:49.148Z",
+      "lastSeenAt": "2026-05-24T19:06:49.173Z"
+    }
+  }
+}

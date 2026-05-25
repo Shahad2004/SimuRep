@@ -1,4 +1,6 @@
 import type { NashamaRank } from '@/app/components/isbl/nashamaLevel3';
+import type { WaitingRoomCharacterId } from '@/app/components/isbl/waitingRoomCharacters';
+import { getWaitingRoomCharacter } from '@/app/components/isbl/waitingRoomCharacters';
 
 /** Student progression within the same PIN lab session (Levels 1–3). */
 export type StudentProgressLevel =
@@ -19,6 +21,8 @@ export interface LabLivePlayer {
   progress: StudentProgressLevel;
   joinedAt: string;
   lastSeenAt: string;
+  /** Nashama player picked in Level 3 waiting room */
+  characterId?: WaitingRoomCharacterId;
   /** Live / final Level 3 metrics */
   totalScore?: number;
   balanceEfficiencyPct?: number;
@@ -125,7 +129,8 @@ export function liveSessionToLeaderboardEntries(
   if (!session) return [];
   return sortLiveLeaderboard(session).map((p) => ({
     id: p.playerId,
-    playerName: p.displayName,
+    playerName: getWaitingRoomCharacter(p.characterId)?.name ?? p.displayName,
+    characterId: p.characterId,
     totalScore: p.totalScore ?? 0,
     balanceEfficiencyPct: p.balanceEfficiencyPct ?? 0,
     flowEfficiencyPct: p.flowEfficiencyPct ?? 0,

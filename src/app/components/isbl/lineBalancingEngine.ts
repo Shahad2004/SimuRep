@@ -129,6 +129,124 @@ function partitionToStations(parts: Partition): OptimalStation[] {
   }));
 }
 
+function isNearEmptyLoad(loadSec: number, cycleTimeSec: number): boolean {
+  return loadSec > 0 && (loadSec < NEAR_EMPTY_ABSOLUTE_SEC || loadSec < cycleTimeSec * NEAR_EMPTY_RATIO);
+}
+
+/** Merge trailing/leading near-empty adjacent stations when combined load still fits cycle time */
+function consolidateNearEmptyStations(
+  stations: OptimalStation[],
+  cycleTimeSec: number,
+): OptimalStation[] {
+  if (stations.length <= 1) return stations;
+
+  let merged = stations.map((s) => ({
+    id: s.id,
+    tasks: [...s.tasks],
+    loadSec: s.loadSec,
+  }));
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const next: OptimalStation[] = [];
+    for (const st of merged) {
+      const last = next[next.length - 1];
+      const nearEmpty = isNearEmptyLoad(st.loadSec, cycleTimeSec);
+      if (
+        last &&
+        nearEmpty &&
+        last.loadSec + st.loadSec <= cycleTimeSec
+      ) {
+        last.tasks.push(...st.tasks);
+        last.loadSec += st.loadSec;
+        changed = true;
+      } else {
+        next.push({ id: st.id, tasks: [...st.tasks], loadSec: st.loadSec });
+      }
+    }
+    merged = next;
+  }
+
+  return merged.map((s, idx) => ({
+    ...s,
+    id: `opt_${idx + 1}`,
+    loadSec: sum(s.tasks.map((t) => t.timeSec)),
+  }));
+}
+
+export function formatStationPath(path: number[]): string {
+  return path.map((n) => `WS${n}`).join(' → ');
+}
+
+/** Educational bullets comparing a student layout to the industrial recommendation */
+export function insightsComparedToIndustrial(
+  playerLoads: number[],
+  optimalLoads: number[],
+  cycleTimeSec: number,
+  playerStationCount: number,
+  optimalStationCount: number,
+): FeedbackInsight[] {
+  const insights: FeedbackInsight[] = [];
+  const playerNear = playerLoads
+    .map((l, i) => (isNearEmptyLoad(l, cycleTimeSec) ? i + 1 : 0))
+    .filter((n) => n > 0);
+  const optimalNear = optimalLoads
+    .map((l, i) => (isNearEmptyLoad(l, cycleTimeSec) ? i + 1 : 0))
+    .filter((n) => n > 0);
+
+  if (playerNear.length > 0 && optimalNear.length === 0) {
+    insights.push({
+      id: 'vs_opt_empty',
+      label: 'Nearly-empty stations vs recommended',
+      detail: `Your layout has underused station${playerNear.length > 1 ? 's' : ''} ${playerNear.join(', ')}. The industrial layout fills stations more evenly — valid math is not the same as a good line.`,
+      tone: 'bad',
+    });
+  }
+
+  if (playerStationCount > optimalStationCount) {
+    insights.push({
+      id: 'vs_opt_count',
+      label: 'More workstations than recommended',
+      detail: `You used ${playerStationCount} stations; a typical industrial layout uses ${optimalStationCount}. Extra stations often add idle time and walking without improving throughput.`,
+      tone: 'warn',
+    });
+  }
+
+  const playerAvg = playerLoads.length ? sum(playerLoads) / playerLoads.length : 0;
+  const optimalAvg = optimalLoads.length ? sum(optimalLoads) / optimalLoads.length : 0;
+  const playerSpread =
+    playerLoads.length > 0
+      ? Math.max(...playerLoads) - Math.min(...playerLoads.filter((l) => l > 0), 0)
+      : 0;
+  const optimalSpread =
+    optimalLoads.length > 0
+      ? Math.max(...optimalLoads) - Math.min(...optimalLoads.filter((l) => l > 0), 0)
+      : 0;
+
+  if (playerSpread > optimalSpread + cycleTimeSec * 0.15) {
+    insights.push({
+      id: 'vs_opt_balance',
+      label: 'Workload less even than recommended',
+      detail: `Your station loads are spread wider than the industrial recommendation. Balanced + efficient beats “fits in cycle time” alone.`,
+      tone: 'warn',
+    });
+  } else if (
+    playerStationCount === optimalStationCount &&
+    Math.abs(playerAvg - optimalAvg) < cycleTimeSec * 0.12 &&
+    playerNear.length === 0
+  ) {
+    insights.push({
+      id: 'vs_opt_strong',
+      label: 'Close to industrial recommendation',
+      detail: 'Your station count and load distribution are similar to what an industrial engineer would recommend for this scenario.',
+      tone: 'good',
+    });
+  }
+
+  return insights;
+}
+
 /**
  * Industrial optimal: precedence-respecting contiguous assignment,
  * minimizes idle/near-empty stations and load imbalance (not LCR).
@@ -146,10 +264,12 @@ export function industrialOptimalAssignment(
   let best: OptimalStation[] | null = null;
   let bestScore = Infinity;
 
-  for (let n = minN; n <= minN + 2; n++) {
+  const maxN = Math.min(ordered.length, minN + 3);
+  for (let n = minN; n <= maxN; n++) {
     const parts = partitionContiguous(ordered, n, cycleTimeSec);
     if (!parts) continue;
-    const stations = partitionToStations(parts);
+    let stations = partitionToStations(parts);
+    stations = consolidateNearEmptyStations(stations, cycleTimeSec);
     const score = scoreIndustrialSolution(stations, cycleTimeSec, minN);
     if (score < bestScore) {
       bestScore = score;

@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { LineBalancingFlowPanel } from './LineBalancingFlowPanel';
 import { NashamaCrowdMoodMeter } from './NashamaCrowdMoodMeter';
 import { NashamaLevel3BriefingScreen } from './NashamaLevel3BriefingScreen';
+import { GuideCoachStrip, GuideGlowButton, PlayHintPulse } from './PlayGuide';
 import { NashamaLevel3Header, NASHAMA_HEADER_OFFSET_CLASS } from './NashamaLevel3Header';
 import { NashamaPhotoBackground } from './NashamaPhotoBackground';
 import { firstBackground } from './nashamaLevel3Assets';
@@ -38,6 +39,10 @@ import type { StudentJoinedEntry } from '@/app/types/classes';
 import { liveSessionToLeaderboardEntries } from '@/app/types/liveSession';
 import { getOrCreatePlayerId } from '@/app/services/liveSessionSync';
 import { useLiveSession } from '@/app/hooks/useLiveSession';
+import {
+  getStoredWaitingCharacterId,
+  getWaitingRoomCharacter,
+} from './waitingRoomCharacters';
 import {
   calcWorkloadBalancePct,
   computeNashamaFlow,
@@ -170,8 +175,16 @@ function KahootLeaderboard({
             >
               {i + 1}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-white truncate">{row.playerName}</div>
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              {row.characterId && getWaitingRoomCharacter(row.characterId) && (
+                <img
+                  src={getWaitingRoomCharacter(row.characterId)!.imageUrl}
+                  alt=""
+                  className="w-8 h-8 rounded-full object-cover object-top border border-[#007A3D]/40 shrink-0"
+                />
+              )}
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-white truncate">{row.playerName}</div>
               {!compact && (
                 <div className="text-[10px] text-slate-400 flex gap-2 flex-wrap">
                   <span>Bal {row.balanceEfficiencyPct}%</span>
@@ -180,6 +193,7 @@ function KahootLeaderboard({
                   <span>{formatMMSS(row.completionSeconds)}</span>
                 </div>
               )}
+              </div>
             </div>
             <div className="text-right shrink-0">
               <div className="text-lg font-bold text-amber-300 tabular-nums">{row.totalScore}</div>
@@ -217,12 +231,27 @@ export function NashamaLevel3Challenge({
     [stationSlots],
   );
   const [assignment, setAssignment] = useState<Record<string, string[]>>({});
+  const [l3GuideStations, setL3GuideStations] = useState(true);
+  const [l3GuideAssign, setL3GuideAssign] = useState(true);
   const [hint, setHint] = useState<string | null>(null);
   const [scoreBreakdown, setScoreBreakdown] = useState<NashamaScoreBreakdown | null>(null);
   const [localLeaderboard, setLocalLeaderboard] = useState<NashamaLeaderboardEntry[]>(() =>
     loadNashamaLeaderboard(studentEntry?.labId),
   );
   const [lastEntryId, setLastEntryId] = useState<string | null>(null);
+
+  const characterId = useMemo(() => {
+    if (playerId && session?.players[playerId]?.characterId) {
+      return session.players[playerId].characterId;
+    }
+    if (labId) return getStoredWaitingCharacterId(labId);
+    return null;
+  }, [session, playerId, labId]);
+
+  const playerDisplayName = useMemo(() => {
+    const character = getWaitingRoomCharacter(characterId ?? undefined);
+    return character?.name ?? displayName;
+  }, [characterId, displayName]);
 
   const liveLeaderboard = useMemo(
     () => (session && labPin ? liveSessionToLeaderboardEntries(session) : []),
@@ -330,12 +359,13 @@ export function NashamaLevel3Challenge({
     if (!labId || !labPin || !playerId) return;
     void registerPlayer({
       playerId,
-      displayName,
+      displayName: playerDisplayName,
+      characterId: characterId ?? undefined,
       progress: 'level3_active',
       joinedAt: new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
     });
-  }, [labId, labPin, playerId, displayName, registerPlayer]);
+  }, [labId, labPin, playerId, playerDisplayName, characterId, registerPlayer]);
 
   useEffect(() => {
     if (phase === 'briefing' || phase === 'results') return;
@@ -367,6 +397,8 @@ export function NashamaLevel3Challenge({
         initialSeconds: INITIAL_TIMER_SEC,
       });
       void updateProgress(playerId, 'level3_active', {
+        displayName: playerDisplayName,
+        characterId: characterId ?? undefined,
         totalScore: breakdown.totalScore,
         balanceEfficiencyPct: breakdown.balanceEfficiency,
         flowEfficiencyPct: breakdown.flowEfficiency,
@@ -393,6 +425,8 @@ export function NashamaLevel3Challenge({
     anyOverloaded,
     secondsLeft,
     updateProgress,
+    playerDisplayName,
+    characterId,
   ]);
 
   const canAddStation = stations.length < WORKSTATION_TYPE_COUNT;
@@ -409,6 +443,7 @@ export function NashamaLevel3Challenge({
     });
     setAssignment((prev) => ({ ...prev, [id]: prev[id] ?? [] }));
     setCoins((c) => Math.max(0, c - NASHAMA_WORKSTATION_COST));
+    setL3GuideStations(false);
   };
 
   const removeStation = (id: string) => {
@@ -425,6 +460,7 @@ export function NashamaLevel3Challenge({
     if (payload.kind === 'task') {
       const missing = getNashamaPrerequisiteIds(payload.taskId).filter((id) => !assignedIds.has(id));
       if (missing.length) return;
+      setL3GuideAssign(false);
     }
     setAssignment((prev) => applyTaskDrop(stations, prev, stationId, payload));
   };
@@ -454,12 +490,11 @@ export function NashamaLevel3Challenge({
       initialSeconds: INITIAL_TIMER_SEC,
     });
     setScoreBreakdown(breakdown);
-    const playerName = studentEntry?.className
-      ? `${studentEntry.className} · Lead IE`
-      : `Nashama Engineer ${Math.floor(Math.random() * 900 + 100)}`;
+    const playerName = playerDisplayName;
     const entry: NashamaLeaderboardEntry = {
-      id: `n3_${Date.now()}`,
+      id: playerId ?? `n3_${Date.now()}`,
       playerName,
+      characterId: characterId ?? undefined,
       totalScore: breakdown.totalScore,
       balanceEfficiencyPct: breakdown.balanceEfficiency,
       flowEfficiencyPct: breakdown.flowEfficiency,
@@ -474,7 +509,8 @@ export function NashamaLevel3Challenge({
     setLocalLeaderboard(loadNashamaLeaderboard(studentEntry?.labId));
     if (labId && labPin && playerId) {
       void updateProgress(playerId, 'level3_complete', {
-        displayName,
+        displayName: playerDisplayName,
+        characterId: characterId ?? undefined,
         totalScore: breakdown.totalScore,
         balanceEfficiencyPct: breakdown.balanceEfficiency,
         flowEfficiencyPct: breakdown.flowEfficiency,
@@ -603,6 +639,11 @@ export function NashamaLevel3Challenge({
 
             {phase === 'stations' && (
               <NashamaPanel className="p-5">
+                {l3GuideStations && stations.length === 0 && (
+                  <GuideCoachStrip show step={1} totalSteps={2} title="Build the Nashama line">
+                    Drag a workstation from the bottom-right, drop it on a dashed slot — glowing areas show where to start.
+                  </GuideCoachStrip>
+                )}
                 <div className="text-lg font-bold text-white">Build the production line</div>
                 <p className="text-sm text-slate-400 mt-1">
                   Minimum {NASHAMA_MIN_STATIONS} workstations · {NASHAMA_WORKSTATION_COST} coins each · drag stations onto the floor
@@ -611,15 +652,15 @@ export function NashamaLevel3Challenge({
                   {Array.from({ length: Math.max(NASHAMA_MIN_STATIONS + 2, WORKSTATION_TYPE_COUNT) }).map((_, idx) => {
                     const st = stationSlots[idx];
                     const acc = stationAccent(idx);
-                    return (
+                    const isFirstDrop = l3GuideStations && stations.length === 0 && idx === 0 && !st;
+                    const slot = (
                       <div
-                        key={idx}
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
                           if (!canAddStation || st) return;
                           if (parseDragPayload(e.dataTransfer.getData('text/plain'))?.kind === 'station') addStationAt(idx);
                         }}
-                        className={`rounded-xl border p-4 min-h-[100px] ${acc.border} ${st ? 'bg-slate-950/70' : 'border-dashed border-slate-600 bg-black/30'}`}
+                        className={`rounded-xl border p-4 min-h-[100px] ${acc.border} ${st ? 'bg-slate-950/70' : 'border-dashed border-slate-600 bg-black/30'} ${isFirstDrop ? 'border-lime-400/50 bg-lime-950/10' : ''}`}
                       >
                         {st ? (
                           <div className="flex items-center justify-between gap-2">
@@ -637,14 +678,22 @@ export function NashamaLevel3Challenge({
                         ) : (
                           <div className="flex flex-col items-center justify-center gap-2 py-2">
                             <EmptyWorkstationVisual className="w-16 h-16" />
-                            <span className="text-xs text-slate-500">Drop workstation</span>
+                            <span className={`text-xs ${isFirstDrop ? 'text-lime-200 font-semibold' : 'text-slate-500'}`}>
+                              {isFirstDrop ? 'Drop here first' : 'Drop workstation'}
+                            </span>
                           </div>
                         )}
                       </div>
                     );
+                    return (
+                      <PlayHintPulse key={idx} active={isFirstDrop} label="Drop here" tone="green">
+                        {slot}
+                      </PlayHintPulse>
+                    );
                   })}
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
+                  <PlayHintPulse active={l3GuideStations && canAddStation} label="Drag me" tone="amber">
                   <div
                     draggable={canAddStation}
                     onDragStart={(e) => {
@@ -664,14 +713,17 @@ export function NashamaLevel3Challenge({
                     <EmptyWorkstationVisual className="w-12 h-12 pointer-events-none" />
                     <span className="text-sm font-semibold text-emerald-100">Drag workstation</span>
                   </div>
+                  </PlayHintPulse>
+                  <GuideGlowButton active={stations.length > 0 && l3GuideStations === false} label="Next">
                   <button
                     type="button"
                     disabled={stations.length === 0 || cinematic != null}
                     onClick={goToAssign}
-                    className="px-5 py-2 rounded-xl bg-[#CE1126] text-white font-bold disabled:opacity-40"
+                    className="px-5 py-2 rounded-xl bg-[#CE1126] text-white font-bold disabled:opacity-40 shadow-[0_0_20px_rgba(206,17,38,0.35)]"
                   >
                     Assign Workstations →
                   </button>
+                  </GuideGlowButton>
                 </div>
               </NashamaPanel>
             )}
@@ -738,6 +790,13 @@ export function NashamaLevel3Challenge({
 
                 {phase === 'assign' && (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {l3GuideAssign && assignedIds.size === 0 && (
+                      <div className="lg:col-span-3">
+                        <GuideCoachStrip show step={2} totalSteps={2} title="Assign in order">
+                          Drag the first unlocked task into a glowing workstation. Follow precedence — the game shows where, not the answer.
+                        </GuideCoachStrip>
+                      </div>
+                    )}
                     <div
                       className="lg:col-span-1 NashamaPanel p-4 max-h-[560px] overflow-y-auto"
                       onDragOver={(e) => e.preventDefault()}
@@ -763,9 +822,9 @@ export function NashamaLevel3Challenge({
                           const prereq = getNashamaPrerequisiteIds(t.id).filter((id) => !assignedIds.has(id));
                           const canDrag = prereq.length === 0;
                           const step = t.sequenceOrder ?? 0;
-                          return (
+                          const isHintTask = l3GuideAssign && canDrag && assignedIds.size === 0 && unassigned[0]?.id === t.id;
+                          const row = (
                             <div
-                              key={t.id}
                               draggable={canDrag}
                               onDragStart={(e) => {
                                 if (!canDrag) return e.preventDefault();
@@ -783,6 +842,11 @@ export function NashamaLevel3Challenge({
                               </div>
                             </div>
                           );
+                          return (
+                            <PlayHintPulse key={t.id} active={isHintTask} label="Drag task 1" tone="amber">
+                              {row}
+                            </PlayHintPulse>
+                          );
                         })}
                       </div>
                     </div>
@@ -795,9 +859,10 @@ export function NashamaLevel3Challenge({
                           const overloaded = load > cycleTimeSec;
                           const acc = stationAccent(idx);
                           const pct = Math.min(100, Math.round((load / cycleTimeSec) * 100));
-                          return (
+                          const isHintStation =
+                            l3GuideAssign && assignedIds.size === 0 && (assignment[st.id] ?? []).length === 0 && idx === 0;
+                          const card = (
                             <div
-                              key={st.id}
                               onDragOver={(e) => e.preventDefault()}
                               onDrop={(e) => {
                                 const p = parseDragPayload(e.dataTransfer.getData('text/plain'));
@@ -842,6 +907,11 @@ export function NashamaLevel3Challenge({
                                 })}
                               </div>
                             </div>
+                          );
+                          return (
+                            <PlayHintPulse key={st.id} active={isHintStation} label="Drop here" tone="green">
+                              {card}
+                            </PlayHintPulse>
                           );
                         })}
                       </div>

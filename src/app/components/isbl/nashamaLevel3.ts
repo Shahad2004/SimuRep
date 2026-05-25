@@ -64,9 +64,12 @@ export type NashamaRank =
   | 'Lean Manufacturing Specialist'
   | 'Nashama Industrial Engineering Expert';
 
+import type { WaitingRoomCharacterId } from '@/app/components/isbl/waitingRoomCharacters';
+
 export type NashamaLeaderboardEntry = {
   id: string;
   playerName: string;
+  characterId?: WaitingRoomCharacterId;
   totalScore: number;
   balanceEfficiencyPct: number;
   flowEfficiencyPct: number;

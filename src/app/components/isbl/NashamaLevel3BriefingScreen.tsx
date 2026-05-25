@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { ArrowRight, Clock, LayoutGrid, ListOrdered, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
-import { NASHAMA_MIN_STATIONS, NASHAMA_PRECEDENCE_RULES, NASHAMA_TOTAL_PROCESSING_SEC } from './nashamaLevel3';
+import { NASHAMA_PRECEDENCE_RULES } from './nashamaLevel3';
+import { GuideCoachStrip, GuideFocusWrap, GuideGlowButton, PlayHintPulse } from './PlayGuide';
 import type { LineBalancingTask } from '@/app/types/classes';
 
 import { nasahamaGirl, NASAHAMA_GIRL_INTRINSIC } from './nashamaLevel3Assets';
+
+type L3BriefingGuide = 'story' | 'rules' | 'start';
 
 type Props = {
   tasks: LineBalancingTask[];
@@ -57,6 +60,11 @@ export function NashamaLevel3BriefingScreen({
   disabled,
 }: Props) {
   const [showAllTasks, setShowAllTasks] = useState(false);
+  const [guideStep, setGuideStep] = useState<L3BriefingGuide>('story');
+
+  const advanceGuide = () => {
+    setGuideStep((s) => (s === 'story' ? 'rules' : s === 'rules' ? 'start' : 'start'));
+  };
 
   return (
     <>
@@ -67,8 +75,29 @@ export function NashamaLevel3BriefingScreen({
           transition={{ duration: 0.5 }}
           className="w-full overflow-hidden rounded-2xl border border-[#CE1126]/35 bg-black/55 p-4 shadow-2xl shadow-black/50 backdrop-blur-md md:p-6 lg:p-7"
         >
+          <GuideCoachStrip
+            show
+            step={guideStep === 'story' ? 1 : guideStep === 'rules' ? 2 : 3}
+            totalSteps={3}
+            title={
+              guideStep === 'story'
+                ? 'Read the mission'
+                : guideStep === 'rules'
+                  ? 'Know the rules'
+                  : 'Start building'
+            }
+            onNext={guideStep === 'start' ? undefined : advanceGuide}
+            nextLabel={guideStep === 'rules' ? 'Almost there' : 'Next'}
+          >
+            {guideStep === 'story'
+              ? 'Jordan needs Nashama fan shirts before the World Cup match. Read the story — balance the line and the flow.'
+              : guideStep === 'rules'
+                ? 'These precedence rules matter: earlier shirt steps must finish before later ones.'
+                : 'Press the glowing green button below when you are ready to enter the factory.'}
+          </GuideCoachStrip>
+
           <div className="grid gap-4 lg:grid-cols-[1fr_minmax(220px,280px)] lg:items-start">
-            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+            <GuideFocusWrap focused={guideStep === 'story'} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
               <p className="col-start-2 row-start-1 text-xs font-bold uppercase tracking-[0.28em] text-[#007A3D]">
                 Al Nashama — Jordan
               </p>
@@ -88,30 +117,34 @@ export function NashamaLevel3BriefingScreen({
                 <strong className="text-[#CE1126]">workstation balancing</strong> and{' '}
                 <strong className="text-[#007A3D]">production flow</strong> together.
               </p>
-            </div>
+            </GuideFocusWrap>
 
-            <div className="rounded-xl border border-[#007A3D]/35 bg-black/45 p-4 lg:mt-0">
-              <div className="flex items-center gap-2 text-sm font-semibold text-[#007A3D]">
-                <ListOrdered className="h-4 w-4" />
-                Precedence Constraints
-              </div>
-              <ul className="mt-3 space-y-2 text-xs leading-relaxed text-slate-200/90">
-                {NASHAMA_PRECEDENCE_RULES.map((rule) => (
-                  <li key={rule} className="flex gap-2">
-                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#CE1126]" />
-                    <span>{rule}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <GuideFocusWrap focused={guideStep === 'rules'}>
+              <PlayHintPulse active={guideStep === 'rules'} label="Rules" tone="green">
+                <div className="rounded-xl border-2 border-[#007A3D]/50 bg-black/45 p-4 lg:mt-0 shadow-[0_0_24px_rgba(0,122,61,0.2)]">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-[#007A3D]">
+                    <ListOrdered className="h-4 w-4" />
+                    Precedence Constraints
+                  </div>
+                  <ul className="mt-3 space-y-2 text-xs leading-relaxed text-slate-200/90">
+                    {NASHAMA_PRECEDENCE_RULES.map((rule) => (
+                      <li key={rule} className="flex gap-2">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#CE1126]" />
+                        <span>{rule}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </PlayHintPulse>
+            </GuideFocusWrap>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className={`mt-6 grid grid-cols-2 gap-3 md:grid-cols-4 transition-opacity ${guideStep !== 'start' ? 'opacity-30' : ''}`}>
             {[
               { value: tasks.length, label: 'Tasks', icon: ListOrdered },
               { value: `${cycleTimeSec}s`, label: 'Cycle Time', icon: Clock },
-              { value: NASHAMA_MIN_STATIONS, label: 'Min Stations', icon: LayoutGrid },
-              { value: `${NASHAMA_TOTAL_PROCESSING_SEC}s`, label: 'Total Work Content', icon: Timer },
+              { value: 'Balance', label: 'Goal', icon: LayoutGrid },
+              { value: 'Flow', label: 'Focus', icon: Timer },
             ].map(({ value, label, icon: Icon }) => (
               <div
                 key={label}
@@ -171,15 +204,20 @@ export function NashamaLevel3BriefingScreen({
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={onStart}
-            disabled={disabled}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#007A3D] to-emerald-500 px-6 py-3 text-base font-bold text-white shadow-lg shadow-emerald-900/40 transition hover:opacity-95 disabled:opacity-50 md:px-8"
-          >
-            Let&apos;s Start Building
-            <ArrowRight className="h-5 w-5" />
-          </button>
+          <GuideGlowButton active={guideStep === 'start'} label="Press start">
+            <button
+              type="button"
+              onClick={() => {
+                setGuideStep('start');
+                onStart();
+              }}
+              disabled={disabled || guideStep !== 'start'}
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-lime-400 to-emerald-500 px-6 py-3 text-base font-bold text-slate-950 shadow-[0_0_28px_rgba(163,230,53,0.55)] transition hover:opacity-95 disabled:opacity-50 md:px-8"
+            >
+              Let&apos;s Start Building
+              <ArrowRight className="h-5 w-5" />
+            </button>
+          </GuideGlowButton>
         </div>
       </footer>
     </>

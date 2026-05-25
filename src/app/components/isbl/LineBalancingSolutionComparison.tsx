@@ -7,6 +7,7 @@ import {
   calcMinStations,
   computeFlowMetrics,
   industrialOptimalAssignment,
+  insightsComparedToIndustrial,
   type FlowMetrics,
   type OptimalStation,
 } from './lineBalancingEngine';
@@ -236,6 +237,18 @@ export function LineBalancingSolutionComparison({
     return computeFlowMetrics(taskOrder, labelMap, path);
   }, [taskOrder, optimalAssignment, optimalStationIds, labelMap]);
 
+  const vsIndustrialInsights = useMemo(
+    () =>
+      insightsComparedToIndustrial(
+        playerLoads,
+        optimalLoads,
+        cycleTimeSec,
+        playerStationIds.length,
+        optimalStationIds.length,
+      ),
+    [playerLoads, optimalLoads, cycleTimeSec, playerStationIds.length, optimalStationIds.length],
+  );
+
   return (
     <div className="rounded-xl border border-slate-600/80 bg-slate-950/30 p-4 space-y-4">
       <div>
@@ -244,9 +257,30 @@ export function LineBalancingSolutionComparison({
           {title ?? 'Your solution vs industrial recommendation'}
         </div>
         <p className="text-[11px] text-slate-400 mt-1">
-          Side-by-side layout from industrial engineering: contiguous task groups, balanced loads, forward shirt flow.
+          Balanced + efficient = optimal. The recommendation uses contiguous task groups, even workloads, and forward
+          shirt flow — not just “fits in cycle time.”
         </p>
       </div>
+
+      {vsIndustrialInsights.length > 0 && (
+        <ul className="space-y-2">
+          {vsIndustrialInsights.map((insight) => (
+            <li
+              key={insight.id}
+              className={`rounded-lg border px-3 py-2 text-sm ${
+                insight.tone === 'good'
+                  ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-100'
+                  : insight.tone === 'bad'
+                    ? 'border-rose-500/30 bg-rose-950/20 text-rose-100'
+                    : 'border-amber-500/30 bg-amber-950/20 text-amber-100'
+              }`}
+            >
+              <span className="font-semibold">{insight.label}</span>
+              <span className="text-slate-300/90"> — {insight.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <MetricPill
