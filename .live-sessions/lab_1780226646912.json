@@ -1,0 +1,16 @@
+{
+  "labId": "lab_1780226646912",
+  "pin": "738805",
+  "level3Status": "waiting",
+  "updatedAt": "2026-06-01T18:38:41.479Z",
+  "players": {
+    "player_1780226687143_49371": {
+      "playerId": "player_1780226687143_49371",
+      "displayName": "Saad Al Rosan",
+      "characterId": "saad_al_rosan",
+      "progress": "waiting_l3",
+      "joinedAt": "2026-06-01T18:30:15.924Z",
+      "lastSeenAt": "2026-06-01T18:38:41.416Z"
+    }
+  }
+}

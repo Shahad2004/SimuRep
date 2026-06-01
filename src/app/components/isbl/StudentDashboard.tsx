@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart, MessageSquare, Play, RotateCcw, X, ClipboardList, Package, LogOut } from 'lucide-react';
 import advisorAvatar from '@/assets/icons/Advisor.png';
-import htuLogo from '@/assets/icons/htu-industrial-virtual-lab.png';
+import { APP_NAME, APP_TAGLINE, appLogo } from '@/app/brand';
 import { motion, AnimatePresence } from 'motion/react';
 import { LandscapeSupplyChain } from './LandscapeSupplyChain';
 import { DecisionPanel } from './DecisionPanel';
@@ -408,15 +408,15 @@ export function StudentDashboard({ initialClass = null, onLeave }: StudentDashbo
               <div className="flex items-center gap-2">
                 <div className="overflow-hidden rounded-xl">
                   <img
-                    src={htuLogo}
-                    alt="HTU Industrial Virtual Lab"
+                    src={appLogo}
+                    alt={APP_NAME}
                     className="h-11 w-auto object-contain"
                   />
                 </div>
                 <div className="hidden sm:block leading-tight">
-                  <div className="text-white font-semibold tracking-wide">Virtual Lab</div>
+                  <div className="text-white font-semibold tracking-wide">{APP_NAME}</div>
                   <div className="text-[11px] uppercase tracking-[0.2em] text-cyan-400/80 -mt-0.5">
-                    Industrial simulation
+                    {APP_TAGLINE}
                   </div>
                 </div>
               </div>

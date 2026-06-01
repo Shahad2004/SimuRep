@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LineBalancingFlowPanel } from './LineBalancingFlowPanel';
+import { LineInputsBar } from './LineInputsBar';
 import { NashamaCrowdMoodMeter } from './NashamaCrowdMoodMeter';
 import { NashamaLevel3BriefingScreen } from './NashamaLevel3BriefingScreen';
 import { GuideCoachStrip, GuideGlowButton, PlayHintPulse } from './PlayGuide';
@@ -53,10 +54,10 @@ import {
   getNashamaPrerequisiteIds,
   loadNashamaLeaderboard,
   NASHAMA_CYCLE_TIME_SEC,
-  NASHAMA_MIN_STATIONS,
   NASHAMA_RANKS,
   NASHAMA_TASKS,
   NASHAMA_TOTAL_PROCESSING_SEC,
+  type NashamaRank,
   NASHAMA_WORKSTATION_COST,
   pickNashamaHint,
   saveNashamaLeaderboardEntry,
@@ -70,7 +71,7 @@ import taskPacking from '@/assets/line-balancing/tasks/task_packing.png';
 import taskSewing from '@/assets/line-balancing/tasks/task_sewing.png';
 
 type Phase = 'briefing' | 'stations' | 'assign' | 'simulate' | 'results';
-type StationSlot = { id: string };
+type StationSlot = { id: string; typeIndex: number };
 type DragPayload =
   | { kind: 'station' }
   | { kind: 'task'; taskId: string }
@@ -79,11 +80,8 @@ type DragPayload =
 const INITIAL_TIMER_SEC = 420;
 const NEAR_EMPTY_RATIO = 0.25;
 
-function createEmptyStationSlots(): (StationSlot | null)[] {
-  return Array.from(
-    { length: Math.max(NASHAMA_MIN_STATIONS + 2, WORKSTATION_TYPE_COUNT) },
-    () => null,
-  );
+function createEmptyStationSlots(slotCount: number): (StationSlot | null)[] {
+  return Array.from({ length: slotCount }, () => null);
 }
 
 function sum(vals: number[]) {
@@ -210,22 +208,33 @@ export function NashamaLevel3Challenge({
   studentEntry,
   labPin = '',
   displayName = 'Nashama Student',
+  cycleTimeSec: cycleTimeSecProp,
   onLeave,
 }: {
   studentEntry?: StudentJoinedEntry;
   labPin?: string;
   displayName?: string;
+  /** From instructor lab setup (line balancing template). */
+  cycleTimeSec?: number;
   onLeave: () => void;
 }) {
   const labId = studentEntry?.labId;
   const playerId = useMemo(() => (labId ? getOrCreatePlayerId(labId) : null), [labId]);
   const { session, registerPlayer, updateProgress } = useLiveSession(labId, labPin || undefined);
   const tasks = NASHAMA_TASKS;
-  const cycleTimeSec = NASHAMA_CYCLE_TIME_SEC;
+  const cycleTimeSec = cycleTimeSecProp ?? NASHAMA_CYCLE_TIME_SEC;
+  const totalProcessingTimeSec = NASHAMA_TOTAL_PROCESSING_SEC;
+  const minStations = useMemo(
+    () => Math.ceil(totalProcessingTimeSec / Math.max(1, cycleTimeSec)),
+    [totalProcessingTimeSec, cycleTimeSec],
+  );
+  const stationSlotCount = Math.max(WORKSTATION_TYPE_COUNT + 2, minStations + 2);
   const [phase, setPhase] = useState<Phase>('briefing');
   const [secondsLeft, setSecondsLeft] = useState(INITIAL_TIMER_SEC);
   const [coins, setCoins] = useState(900);
-  const [stationSlots, setStationSlots] = useState<(StationSlot | null)[]>(createEmptyStationSlots);
+  const [stationSlots, setStationSlots] = useState<(StationSlot | null)[]>(() =>
+    createEmptyStationSlots(stationSlotCount),
+  );
   const stations = useMemo(
     () => stationSlots.filter((s): s is StationSlot => s != null),
     [stationSlots],
@@ -301,7 +310,7 @@ export function NashamaLevel3Challenge({
       computeCheerPct({
         phase,
         stationsCount: stations.length,
-        minStations: NASHAMA_MIN_STATIONS,
+        minStations,
         anyOverloaded,
         allAssigned,
         workloadBalancePct,
@@ -536,7 +545,7 @@ export function NashamaLevel3Challenge({
     setPhase('briefing');
     setSecondsLeft(INITIAL_TIMER_SEC);
     setCoins(900);
-    setStationSlots(createEmptyStationSlots());
+    setStationSlots(createEmptyStationSlots(stationSlotCount));
     setAssignment({});
     setHint(null);
     setScoreBreakdown(null);
@@ -599,6 +608,8 @@ export function NashamaLevel3Challenge({
         variant={isBriefingScreen ? 'briefing' : 'gameplay'}
         secondsLeft={secondsLeft}
         coins={coins}
+        cycleTimeSec={cycleTimeSec}
+        totalProcessingTimeSec={totalProcessingTimeSec}
         onLeave={onLeave}
         showHint={phase === 'assign' || phase === 'simulate'}
         onHint={requestHint}
@@ -611,6 +622,7 @@ export function NashamaLevel3Challenge({
           <NashamaLevel3BriefingScreen
             tasks={tasks}
             cycleTimeSec={cycleTimeSec}
+            totalProcessingTimeSec={totalProcessingTimeSec}
             sequencedTasks={sequencedTasks}
             onStart={startBuilding}
             disabled={cinematic != null}
@@ -620,7 +632,13 @@ export function NashamaLevel3Challenge({
       <div
         className={`relative z-10 min-h-0 flex-1 overflow-y-auto ${NASHAMA_HEADER_OFFSET_CLASS} ${cinematic != null ? 'pointer-events-none opacity-0' : ''}`}
       >
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 py-6 space-y-5">
+        <LineInputsBar
+          cycleTimeSec={cycleTimeSec}
+          totalProcessingTimeSec={totalProcessingTimeSec}
+          tasks={tasks}
+          levelLabel="Level 3"
+        />
         <motion.div className="grid gap-6 lg:grid-cols-12">
           <div className="lg:col-span-8 space-y-4">
             <AnimatePresence>
@@ -646,10 +664,10 @@ export function NashamaLevel3Challenge({
                 )}
                 <div className="text-lg font-bold text-white">Build the production line</div>
                 <p className="text-sm text-slate-400 mt-1">
-                  Minimum {NASHAMA_MIN_STATIONS} workstations · {NASHAMA_WORKSTATION_COST} coins each · drag stations onto the floor
+                  {NASHAMA_WORKSTATION_COST} coins per workstation · drag stations onto the dashed slots
                 </p>
                 <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {Array.from({ length: Math.max(NASHAMA_MIN_STATIONS + 2, WORKSTATION_TYPE_COUNT) }).map((_, idx) => {
+                  {Array.from({ length: stationSlotCount }).map((_, idx) => {
                     const st = stationSlots[idx];
                     const acc = stationAccent(idx);
                     const isFirstDrop = l3GuideStations && stations.length === 0 && idx === 0 && !st;
@@ -765,7 +783,16 @@ export function NashamaLevel3Challenge({
                       <span className="text-rose-400">red = backtracking waste</span>
                     </p>
                     <div className="mt-3">
-                      <LineBalancingFlowPanel stationCount={stations.length} flowMetrics={flowMetrics} />
+                      <LineBalancingFlowPanel
+                        stationCount={stations.length}
+                        flowMetrics={flowMetrics}
+                        stationIds={stations.map((s) => s.id)}
+                        assignment={assignment}
+                        tasks={tasks}
+                        taskOrder={sequencedTasks.map((t) => t.id)}
+                        cycleTimeSec={cycleTimeSec}
+                        autoPlay
+                      />
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2 justify-end">
                       <button

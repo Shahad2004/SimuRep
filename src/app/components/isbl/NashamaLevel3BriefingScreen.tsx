@@ -12,6 +12,7 @@ type L3BriefingGuide = 'story' | 'rules' | 'start';
 type Props = {
   tasks: LineBalancingTask[];
   cycleTimeSec: number;
+  totalProcessingTimeSec: number;
   sequencedTasks: LineBalancingTask[];
   onStart: () => void;
   disabled?: boolean;
@@ -55,6 +56,7 @@ function WorldCupRushCharacter() {
 export function NashamaLevel3BriefingScreen({
   tasks,
   cycleTimeSec,
+  totalProcessingTimeSec,
   sequencedTasks,
   onStart,
   disabled,
@@ -141,10 +143,10 @@ export function NashamaLevel3BriefingScreen({
 
           <div className={`mt-6 grid grid-cols-2 gap-3 md:grid-cols-4 transition-opacity ${guideStep !== 'start' ? 'opacity-30' : ''}`}>
             {[
+              { value: `${totalProcessingTimeSec}s`, label: 'Total processing', icon: LayoutGrid },
+              { value: `${cycleTimeSec}s`, label: 'Cycle time', icon: Clock },
               { value: tasks.length, label: 'Tasks', icon: ListOrdered },
-              { value: `${cycleTimeSec}s`, label: 'Cycle Time', icon: Clock },
-              { value: 'Balance', label: 'Goal', icon: LayoutGrid },
-              { value: 'Flow', label: 'Focus', icon: Timer },
+              { value: 'Balance + flow', label: 'Goal', icon: Timer },
             ].map(({ value, label, icon: Icon }) => (
               <div
                 key={label}

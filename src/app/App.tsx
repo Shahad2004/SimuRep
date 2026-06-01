@@ -7,8 +7,9 @@ import { Level3WaitingRoom } from './components/isbl/Level3WaitingRoom';
 import { NashamaLevel3Challenge } from './components/isbl/NashamaLevel3Challenge';
 import { InstructorDashboard } from './components/isbl/InstructorDashboard';
 import { Users, GraduationCap } from 'lucide-react';
-import { loadInstructorClasses, getLabPinFromClasses } from './types/classes';
-import htuLogo from '@/assets/icons/htu-industrial-virtual-lab.png';
+import { HomeLandingPage } from './components/isbl/HomeLandingPage';
+import { loadInstructorClasses, getLabPinFromClasses, resolveLevel3CycleTimeSec } from './types/classes';
+import { APP_NAME, APP_TAGLINE, appLogo } from '@/app/brand';
 import type { StudentJoinedEntry } from './types/classes';
 import type { Lab } from './types/classes';
 import type { ScenarioDefinition } from './types/classes';
@@ -126,21 +127,21 @@ export default function App() {
   const immersiveStudentGame =
     view === 'student' &&
     (studentScreen === 'game' || studentScreen === 'waiting' || studentScreen === 'level3');
-  const showAppHeader = !immersiveStudentGame;
+  const showAppHeader = view !== 'select' && !immersiveStudentGame;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950">
+    <div className={`min-h-screen ${view === 'select' ? 'bg-[#061327]' : 'bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950'}`}>
       {showAppHeader && (
       <header className="fixed inset-x-0 top-0 z-[60] border-b border-slate-800 bg-slate-900/95 shadow-lg backdrop-blur-md">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="overflow-hidden rounded-xl">
-                <img src={htuLogo} alt="HTU Industrial Virtual Lab" className="h-14 w-auto object-contain" />
+                <img src={appLogo} alt={APP_NAME} className="h-14 w-auto object-contain" />
               </div>
               <div className="leading-tight">
-                <div className="text-xl font-semibold text-sky-200 tracking-wide">Virtual Lab</div>
-                <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-400/80">Industrial simulation</div>
+                <div className="text-xl font-semibold text-sky-200 tracking-wide">{APP_NAME}</div>
+                <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-400/80">{APP_TAGLINE}</div>
               </div>
             </div>
             {view !== 'select' && (
@@ -162,35 +163,12 @@ export default function App() {
       </header>
       )}
 
-      <main className={showAppHeader ? 'pt-[5.25rem]' : 'min-h-screen'}>
+      <main className={showAppHeader ? 'pt-[5.25rem]' : view === 'select' ? '' : 'min-h-screen'}>
       {view === 'select' ? (
-        <div className="container mx-auto p-6 max-w-5xl">
-          <div className="mt-10 rounded-2xl border border-slate-700 bg-slate-900/80 p-8 shadow-xl shadow-slate-950/30 overflow-hidden">
-            <div className="text-center max-w-3xl mx-auto">
-              <div className="mb-5 flex justify-center">
-                <img src={htuLogo} alt="HTU Industrial Virtual Lab" className="w-full max-w-sm rounded-2xl object-contain shadow-2xl shadow-slate-950/30" />
-              </div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">Production Line Balancing Lab</p>
-              <h2 className="mt-3 text-3xl font-semibold text-white">See the bottleneck. Balance the work. Improve the flow.</h2>
-            </div>
-            <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button onClick={() => setView('student')} className="group rounded-2xl border border-sky-500/30 bg-sky-500/10 p-6 text-left hover:bg-sky-500/15 transition-all">
-                <div className="w-12 h-12 rounded-xl bg-sky-600 text-white flex items-center justify-center shadow-lg shadow-sky-500/25">
-                  <GraduationCap className="w-6 h-6" />
-                </div>
-                <div className="mt-4 text-xl font-semibold text-white">Student</div>
-                <div className="mt-2 text-sm text-slate-400">Enter a PIN, open your lab, and complete the line-balancing challenge.</div>
-              </button>
-              <button onClick={() => setView('instructor')} className="group rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-left hover:bg-emerald-500/15 transition-all">
-                <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-500/25">
-                  <Users className="w-6 h-6" />
-                </div>
-                <div className="mt-4 text-xl font-semibold text-white">Instructor</div>
-                <div className="mt-2 text-sm text-slate-400">Manage classes, create labs, share PINs, and start the World Cup final together.</div>
-              </button>
-            </div>
-          </div>
-        </div>
+        <HomeLandingPage
+          onSelectStudent={() => setView('student')}
+          onSelectInstructor={() => setView('instructor')}
+        />
       ) : view === 'student' ? (
         studentScreen === 'dashboard' ? (
           <StudentHome onPlayLab={openLab} />
@@ -207,6 +185,7 @@ export default function App() {
             studentEntry={selectedLabEntry}
             labPin={labPin}
             displayName={displayName}
+            cycleTimeSec={resolveLevel3CycleTimeSec(resolved?.lab.lineBalancing)}
             onLeave={handleLeaveLab}
           />
         ) : resolved?.lab.templateId === 'production-planning' && resolved.lab.productionPlanning ? (

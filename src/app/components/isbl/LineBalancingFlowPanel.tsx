@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight, Shirt, TrendingDown, TrendingUp } from 'lucide-react';
 import type { LineBalancingTask } from '@/app/types/classes';
 import type { FlowMetrics } from './lineBalancingEngine';
+import { buildFlowPlaybackPlan, flowMetricsSignature } from './lineBalancingFlowPlayback';
+import { CycleTimeBanner } from './CycleTimeBanner';
 
 import {
   getWorkstationImageForTaskGroup,
@@ -17,12 +19,11 @@ type FlowPanelProps = {
   stationCount: number;
   flowMetrics: FlowMetrics;
   stationLabels?: string[];
-  /** Level 1 layout — used to pick workstation art per station */
   stationIds?: string[];
   assignment?: Record<string, string[]>;
   tasks?: LineBalancingTask[];
-  /** Task ids in production sequence (same order as flowMetrics.taskLabels) */
   taskOrder?: string[];
+  cycleTimeSec?: number;
   onAnimationComplete?: () => void;
   autoPlay?: boolean;
 };
@@ -62,7 +63,6 @@ function resolveTaskGroupForStep(
   return tasks?.find((t) => t.id === taskId)?.group ?? '';
 }
 
-/** Arc flight between two station centers — shirts “fly” along the transfer path */
 function FlyingShirtTransfer({
   fromX,
   toX,
@@ -98,25 +98,6 @@ function FlyingShirtTransfer({
         />
       </svg>
 
-      {/* Ghost trail shirts */}
-      {[0.25, 0.5].map((t) => (
-        <motion.div
-          key={t}
-          className="absolute z-[25] pointer-events-none"
-          style={{ bottom: '4.25rem', width: 40, marginLeft: -20 }}
-          initial={{ left: fromX, opacity: 0, scale: 0.5 }}
-          animate={{
-            left: [fromX, midX, toX],
-            y: [0, -arcHeight * (isBackward ? 0.5 : 1), 0],
-            opacity: [0, 0.55, 0],
-            scale: [0.5, 0.85, 0.4],
-          }}
-          transition={{ duration: durationSec, ease: 'easeInOut', times: [0, t, 1] }}
-        >
-          <img src={shirtImg} alt="" className="w-8 h-8 object-contain opacity-60 blur-[0.5px]" draggable={false} />
-        </motion.div>
-      ))}
-
       <motion.div
         className="absolute z-40 pointer-events-none"
         style={{ bottom: '4.25rem', width: 52, marginLeft: -26 }}
@@ -129,17 +110,12 @@ function FlyingShirtTransfer({
         }}
         transition={{ duration: durationSec, ease: 'easeInOut', times: [0, 0.48, 1] }}
       >
-        <motion.div
-          animate={{ filter: ['drop-shadow(0 4px 8px rgba(0,0,0,0.4))', 'drop-shadow(0 12px 20px rgba(34,211,238,0.35))', 'drop-shadow(0 4px 8px rgba(0,0,0,0.4))'] }}
-          transition={{ duration: durationSec }}
-        >
-          <img
-            src={shirtImg}
-            alt="Shirt transferring"
-            className={`w-[3.25rem] h-[3.25rem] object-contain ${isBackward ? 'hue-rotate-[-20deg]' : ''}`}
-            draggable={false}
-          />
-        </motion.div>
+        <img
+          src={shirtImg}
+          alt="Shirt transferring"
+          className={`w-[3.25rem] h-[3.25rem] object-contain drop-shadow-lg ${isBackward ? 'hue-rotate-[-20deg]' : ''}`}
+          draggable={false}
+        />
         <motion.span
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
@@ -149,7 +125,7 @@ function FlyingShirtTransfer({
               : 'bg-emerald-950/95 text-emerald-200 border border-emerald-500/50'
           }`}
         >
-          {isBackward ? '↩ waste transfer' : '✈ to next WS'}
+          {isBackward ? '↩ backtracking' : '→ forward flow'}
         </motion.span>
       </motion.div>
     </>
@@ -164,19 +140,32 @@ export function LineBalancingFlowPanel({
   assignment,
   tasks,
   taskOrder = [],
+  cycleTimeSec,
   onAnimationComplete,
   autoPlay = true,
 }: FlowPanelProps) {
-  const [step, setStep] = useState(0);
+  const [planIndex, setPlanIndex] = useState(0);
   const [playing, setPlaying] = useState(autoPlay);
-  /** Shirt is moving from path[step] → path[step + 1] */
   const [traveling, setTraveling] = useState(false);
+  const [runComplete, setRunComplete] = useState(false);
   const factoryRef = useRef<HTMLDivElement>(null);
   const stationRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [centersPx, setCentersPx] = useState<number[]>([]);
 
   const path = flowMetrics.stationPath;
   const labels = flowMetrics.taskLabels;
+  const totalTasks = path.length;
+
+  const playbackPlan = useMemo(
+    () => buildFlowPlaybackPlan(path, flowMetrics.segments),
+    [path, flowMetrics.segments],
+  );
+
+  const flowSignature = useMemo(
+    () => flowMetricsSignature(flowMetrics, stationCount, stationIds),
+    [flowMetrics, stationCount, stationIds],
+  );
+
   const stationImages = useMemo(
     () => resolveStationImages(stationCount, stationIds, assignment, tasks),
     [stationCount, stationIds, assignment, tasks],
@@ -209,20 +198,47 @@ export function LineBalancingFlowPanel({
     const ro = new ResizeObserver(() => measureCenters());
     if (factoryRef.current) ro.observe(factoryRef.current);
     return () => ro.disconnect();
-  }, [measureCenters, stationCount]);
+  }, [measureCenters, stationCount, flowSignature]);
 
-  const dwellStation = path[step] ?? 1;
-  const transitToStation = step < path.length - 1 ? path[step + 1] : dwellStation;
-  const currentTask = labels[step] ?? '';
-  const nextTask = labels[step + 1] ?? '';
-  const currentGroup = resolveTaskGroupForStep(step, taskOrder, tasks);
-  const transitGroup = resolveTaskGroupForStep(step + 1, taskOrder, tasks);
+  const currentStep = playbackPlan[planIndex];
+  const activeMove =
+    traveling && currentStep?.kind === 'move' ? currentStep : null;
+
+  const taskIndex =
+    currentStep?.kind === 'dwell'
+      ? currentStep.taskIndex
+      : activeMove
+        ? activeMove.segmentIndex + 1
+        : findLastDwellTaskIndex(playbackPlan, planIndex);
+
+  const dwellStation =
+    currentStep?.kind === 'dwell'
+      ? currentStep.station
+      : activeMove
+        ? activeMove.from
+        : path[taskIndex] ?? 1;
+
+  const moveTargetStation = activeMove?.to ?? dwellStation;
+
+  const currentTask = labels[taskIndex] ?? '';
+  const nextTaskIndex = Math.min(taskIndex + 1, totalTasks - 1);
+  const nextTask = labels[nextTaskIndex] ?? '';
+  const currentGroup = resolveTaskGroupForStep(taskIndex, taskOrder, tasks);
+  const transitGroup = resolveTaskGroupForStep(
+    activeMove ? activeMove.segmentIndex + 1 : nextTaskIndex,
+    taskOrder,
+    tasks,
+  );
   const shirtProductImg = groupToShirtProductImage(traveling ? transitGroup : currentGroup);
 
-  const activeSegment = step < path.length - 1 ? flowMetrics.segments[step] : null;
-  const isBackwardMove = activeSegment?.backward ?? false;
-  const transitDurationSec = isBackwardMove ? 1.15 : 0.88;
+  const isBackwardMove = activeMove?.backward ?? false;
+  const transitDurationSec = isBackwardMove ? 1.15 : 0.85;
   const beltY = 168;
+
+  const completedMoves = playbackPlan
+    .slice(0, planIndex)
+    .filter((s) => s.kind === 'move').length;
+  const totalMoves = playbackPlan.filter((s) => s.kind === 'move').length;
 
   const stationCenterPx = (stationIndex: number) => {
     const idx = stationIndex - 1;
@@ -230,54 +246,168 @@ export function LineBalancingFlowPanel({
     return ((stationIndex - 0.5) / Math.max(1, stationCount)) * (factoryRef.current?.clientWidth ?? 400);
   };
 
+  const resetAnimation = useCallback(() => {
+    setPlanIndex(0);
+    setTraveling(false);
+    setRunComplete(false);
+    setPlaying(true);
+    measureCenters();
+  }, [measureCenters]);
+
   useEffect(() => {
-    if (!playing || traveling) return;
-    if (step >= path.length - 1) {
-      onAnimationComplete?.();
+    setPlanIndex(0);
+    setTraveling(false);
+    setRunComplete(false);
+    setPlaying(autoPlay);
+    measureCenters();
+  }, [flowSignature, autoPlay, measureCenters]);
+
+  useEffect(() => {
+    if (!playing || runComplete) return;
+
+    const step = playbackPlan[planIndex];
+    if (!step) {
+      const finalTimer = window.setTimeout(() => {
+        setRunComplete(true);
+        onAnimationComplete?.();
+      }, 1200);
+      return () => window.clearTimeout(finalTimer);
+    }
+
+    if (step.kind === 'dwell') {
+      if (traveling) return;
+      const nextSeg = flowMetrics.segments[step.taskIndex];
+      const dwellMs =
+        nextSeg && nextSeg.from !== nextSeg.to && nextSeg.backward ? 1400 : 900;
+
+      const dwellTimer = window.setTimeout(() => {
+        setPlanIndex((i) => i + 1);
+      }, dwellMs);
+      return () => window.clearTimeout(dwellTimer);
+    }
+
+    if (!traveling) {
+      setTraveling(true);
       return;
     }
-    const seg = flowMetrics.segments[step];
-    const dwellMs = seg?.backward ? 2000 : 1400;
-    const transitMs = seg?.backward ? 1150 : 880;
-    let transitTimer: ReturnType<typeof window.setTimeout> | undefined;
-    const dwellTimer = window.setTimeout(() => {
-      setTraveling(true);
-      transitTimer = window.setTimeout(() => {
-        setStep((s) => s + 1);
-        setTraveling(false);
-      }, transitMs);
-    }, dwellMs);
-    return () => {
-      window.clearTimeout(dwellTimer);
-      if (transitTimer != null) window.clearTimeout(transitTimer);
-    };
-  }, [playing, traveling, step, path.length, flowMetrics.segments, onAnimationComplete]);
 
-  const visitedStations = useMemo(() => new Set(path.slice(0, step + 1)), [path, step]);
+    const transitTimer = window.setTimeout(() => {
+      setTraveling(false);
+      setPlanIndex((i) => i + 1);
+      measureCenters();
+    }, step.backward ? 1150 : 880);
+
+    return () => window.clearTimeout(transitTimer);
+  }, [playing, traveling, runComplete, planIndex, playbackPlan, flowMetrics.segments, onAnimationComplete, measureCenters]);
+
+  const visitedStations = useMemo(() => {
+    const set = new Set<number>();
+    for (let i = 0; i <= planIndex && i < playbackPlan.length; i++) {
+      const s = playbackPlan[i];
+      if (s.kind === 'dwell') set.add(s.station);
+      if (s.kind === 'move') {
+        set.add(s.from);
+        set.add(s.to);
+      }
+    }
+    if (!traveling && currentStep?.kind === 'dwell') set.add(currentStep.station);
+    return set;
+  }, [playbackPlan, planIndex, traveling, currentStep]);
+
+  const progressPct =
+    playbackPlan.length > 0
+      ? Math.round(
+          ((planIndex + (traveling ? 0.45 : 0)) / Math.max(1, playbackPlan.length)) * 100,
+        )
+      : 0;
+
+  const activeSegmentIndex = activeMove?.segmentIndex ?? -1;
+
+  const completedSegmentIndices = useMemo(() => {
+    const done = new Set<number>();
+    for (let i = 0; i < planIndex; i++) {
+      const s = playbackPlan[i];
+      if (s.kind === 'move') done.add(s.segmentIndex);
+    }
+    return done;
+  }, [planIndex, playbackPlan]);
 
   const showStaticPath = centersPx.length >= 2 && flowMetrics.segments.length > 0;
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {cycleTimeSec != null && cycleTimeSec > 0 ? (
+          <CycleTimeBanner cycleTimeSec={cycleTimeSec} levelLabel="Production flow" size="md" />
+        ) : (
+          <div className="text-sm font-semibold text-white">Shirt flow through your line</div>
+        )}
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 tabular-nums">
+          <span>
+            Task <span className="text-cyan-200 font-bold">{Math.min(taskIndex + 1, totalTasks)}</span> of{' '}
+            <span className="text-white font-semibold">{totalTasks}</span>
+          </span>
+          {totalMoves > 0 && (
+            <span>
+              Moves <span className="text-white font-semibold">{completedMoves + (traveling ? 1 : 0)}</span> /{' '}
+              {totalMoves}
+              {flowMetrics.backtrackingCount > 0 && (
+                <span className="ml-1 text-rose-400">
+                  · {flowMetrics.backtrackingCount} backtrack
+                  {flowMetrics.backtrackingCount > 1 ? 's' : ''}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+        <motion.div
+          className={`h-full ${
+            isBackwardMove
+              ? 'bg-gradient-to-r from-rose-500 to-amber-500'
+              : 'bg-gradient-to-r from-cyan-500 to-emerald-400'
+          }`}
+          animate={{ width: `${progressPct}%` }}
+          transition={{ duration: 0.35, ease: 'easeOut' }}
+        />
+      </div>
+
       <div
         ref={factoryRef}
-        className="relative rounded-2xl border border-slate-700 bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950 p-4 min-h-[280px] overflow-hidden"
+        className="relative rounded-2xl border border-slate-700 bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950 p-4 min-h-[300px] overflow-hidden"
       >
         {showStaticPath && (
           <svg className="absolute inset-0 w-full h-full pointer-events-none z-10 overflow-visible" aria-hidden>
             {flowMetrics.segments.map((seg, i) => {
+              if (seg.from === seg.to) return null;
               const fromX = stationCenterPx(seg.from);
               const toX = stationCenterPx(seg.to);
               const midX = (fromX + toX) / 2;
               const arcH = seg.backward ? 28 : 52;
               const d = `M ${fromX} ${beltY} Q ${midX} ${beltY - arcH} ${toX} ${beltY}`;
+              const isPast = completedSegmentIndices.has(i);
+              const isCurrent = i === activeSegmentIndex && traveling;
               return (
                 <path
                   key={`static-${i}`}
                   d={d}
                   fill="none"
-                  stroke={seg.backward ? 'rgba(244,63,94,0.45)' : 'rgba(52,211,153,0.35)'}
-                  strokeWidth={seg.backward ? 2 : 1.5}
+                  stroke={
+                    isCurrent
+                      ? seg.backward
+                        ? 'rgba(244,63,94,0.9)'
+                        : 'rgba(52,211,153,0.85)'
+                      : isPast
+                        ? seg.backward
+                          ? 'rgba(244,63,94,0.55)'
+                          : 'rgba(52,211,153,0.45)'
+                        : seg.backward
+                          ? 'rgba(244,63,94,0.25)'
+                          : 'rgba(52,211,153,0.2)'
+                  }
+                  strokeWidth={isCurrent ? 3 : 1.5}
                   strokeDasharray={seg.backward ? '5 4' : undefined}
                   strokeLinecap="round"
                 />
@@ -285,7 +415,7 @@ export function LineBalancingFlowPanel({
             })}
           </svg>
         )}
-        {/* Conveyor belt */}
+
         <div className="absolute left-3 right-3 bottom-[4.5rem] h-3 rounded-full bg-gradient-to-r from-slate-800 via-slate-700 to-slate-800 border border-slate-600/80 shadow-inner">
           <motion.div
             className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-cyan-500/20 to-transparent"
@@ -294,12 +424,14 @@ export function LineBalancingFlowPanel({
           />
         </div>
 
-
-        {/* Workstations */}
         <div className="relative flex justify-between gap-2 px-1 pb-20 pt-2">
           {stationPositions.map((pos, i) => {
             const isActive = pos.index === dwellStation && !traveling;
-            const isTransitTarget = traveling && pos.index === transitToStation;
+            const isTransitTarget = traveling && pos.index === moveTargetStation;
+            const isBackwardEndpoint =
+              traveling &&
+              isBackwardMove &&
+              (pos.index === dwellStation || pos.index === moveTargetStation);
             const visited = visitedStations.has(pos.index);
             const hasShirt = isActive && !traveling;
 
@@ -310,18 +442,22 @@ export function LineBalancingFlowPanel({
                   stationRefs.current[i] = el;
                 }}
                 className={`flex flex-col items-center flex-1 min-w-0 transition-all duration-300 ${
-                  isActive ? 'scale-[1.03] z-20' : ''
+                  isActive ? 'scale-[1.04] z-20' : ''
                 }`}
               >
                 <div
                   className={`relative w-full max-w-[110px] rounded-xl border-2 overflow-hidden transition-all duration-300 ${
-                    isActive
-                      ? 'border-cyan-400/70 bg-cyan-950/30 ring-2 ring-cyan-400/40 shadow-lg shadow-cyan-500/20'
-                      : isTransitTarget
-                        ? 'border-amber-400/50 bg-amber-950/20 ring-1 ring-amber-400/30'
-                      : visited
-                        ? 'border-slate-600 bg-slate-900/70'
-                        : 'border-slate-700/80 bg-slate-950/50 opacity-75'
+                    isBackwardEndpoint
+                      ? 'border-rose-400/80 bg-rose-950/35 ring-2 ring-rose-500/50 shadow-lg shadow-rose-500/25'
+                      : isActive
+                        ? 'border-cyan-400/70 bg-cyan-950/30 ring-2 ring-cyan-400/40 shadow-lg shadow-cyan-500/20'
+                        : isTransitTarget
+                          ? isBackwardMove
+                            ? 'border-rose-400/60 bg-rose-950/25 ring-2 ring-rose-400/40'
+                            : 'border-amber-400/50 bg-amber-950/20 ring-1 ring-amber-400/30'
+                          : visited
+                            ? 'border-slate-600 bg-slate-900/70'
+                            : 'border-slate-700/80 bg-slate-950/50 opacity-75'
                   }`}
                 >
                   <div className="aspect-[4/3] bg-slate-900/80 flex items-end justify-center p-1">
@@ -336,11 +472,10 @@ export function LineBalancingFlowPanel({
                     <div className="text-[10px] font-bold text-slate-200">{pos.label}</div>
                   </div>
 
-                  {/* Shirt at workstation */}
                   <AnimatePresence>
                     {hasShirt && (
                       <motion.div
-                        key={`ws-shirt-${step}`}
+                        key={`ws-shirt-${planIndex}-${taskIndex}`}
                         initial={{ opacity: 0, y: -20, scale: 0.6 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.8 }}
@@ -368,90 +503,104 @@ export function LineBalancingFlowPanel({
           })}
         </div>
 
-        {/* Flying shirt transfer along arc path */}
         <AnimatePresence>
-          {traveling && centersPx.length >= 2 && (
+          {traveling && activeMove && centersPx.length >= 2 && (
             <FlyingShirtTransfer
-              key={`fly-${step}`}
-              fromX={stationCenterPx(dwellStation)}
-              toX={stationCenterPx(transitToStation)}
+              key={`fly-${planIndex}-${activeMove.from}-${activeMove.to}`}
+              fromX={stationCenterPx(activeMove.from)}
+              toX={stationCenterPx(activeMove.to)}
               beltY={beltY}
               shirtImg={shirtProductImg}
-              isBackward={isBackwardMove}
+              isBackward={activeMove.backward}
               durationSec={transitDurationSec}
             />
           )}
         </AnimatePresence>
 
-        {/* Current task callout */}
         <AnimatePresence mode="wait">
           <motion.div
-            key={traveling ? `move-${step}` : `task-${step}`}
+            key={traveling ? `move-${planIndex}` : `task-${planIndex}`}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="absolute left-1/2 -translate-x-1/2 bottom-2 flex items-center gap-2 rounded-full border border-cyan-500/40 bg-cyan-950/60 px-4 py-2 shadow-lg max-w-[90%]"
+            className="absolute left-1/2 -translate-x-1/2 bottom-2 flex flex-col items-center gap-1 max-w-[92%]"
           >
-            <Shirt className="w-4 h-4 text-cyan-300 shrink-0" />
-            <span className="text-xs font-semibold text-cyan-100 truncate">
-              {traveling ? `Moving → ${nextTask}` : currentTask}
-            </span>
+            <div
+              className={`flex items-center gap-2 rounded-full border px-4 py-2 shadow-lg ${
+                isBackwardMove
+                  ? 'border-rose-500/50 bg-rose-950/80'
+                  : 'border-cyan-500/40 bg-cyan-950/70'
+              }`}
+            >
+              <Shirt className={`w-4 h-4 shrink-0 ${isBackwardMove ? 'text-rose-300' : 'text-cyan-300'}`} />
+              <span
+                className={`text-xs font-semibold text-center ${
+                  isBackwardMove ? 'text-rose-100' : 'text-cyan-100'
+                }`}
+              >
+                {traveling && activeMove
+                  ? activeMove.backward
+                    ? `↩ Backtracking to ${posLabel(activeMove.to)} · ${nextTask}`
+                    : `Moving to ${posLabel(activeMove.to)} · ${nextTask}`
+                  : `${currentTask} @ ${posLabel(dwellStation)}`}
+              </span>
+            </div>
           </motion.div>
         </AnimatePresence>
 
         <div className="mt-1 flex flex-wrap gap-2 justify-center text-[11px]">
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-950/30 px-2 py-0.5 text-emerald-200">
-            <TrendingUp className="w-3 h-3" /> Forward flow (green)
+            <TrendingUp className="w-3 h-3" /> Forward (green)
           </span>
           <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/30 bg-rose-950/30 px-2 py-0.5 text-rose-200">
-            <TrendingDown className="w-3 h-3" /> Backtracking (red)
+            <TrendingDown className="w-3 h-3" /> Backward (red)
           </span>
         </div>
       </div>
 
       <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-3">
-        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Shirt path (task sequence)</div>
+        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+          Full shirt path (task order)
+        </div>
         <div className="flex flex-wrap items-center gap-1">
           {path.map((st, i) => (
             <span key={i} className="inline-flex items-center gap-1">
               <span
-                className={`rounded-lg px-2 py-1 text-[11px] font-semibold tabular-nums ${
-                  i === step
+                className={`rounded-lg px-2 py-1 text-[11px] font-semibold tabular-nums max-w-[140px] truncate ${
+                  i === taskIndex && !traveling
                     ? 'bg-cyan-500/25 text-cyan-100 border border-cyan-400/40'
-                    : i < step
+                    : i < taskIndex || (traveling && i <= activeMove?.segmentIndex! + 1)
                       ? 'bg-slate-800 text-slate-300 border border-slate-600'
                       : 'bg-slate-900/50 text-slate-500 border border-slate-700'
                 }`}
+                title={labels[i]}
               >
-                WS{st}
+                {st !== path[i - 1] || i === 0 ? `WS${st}` : '·'}
+                <span className="hidden sm:inline text-slate-500 font-normal ml-1">
+                  {labels[i]?.split(' ')[0]}
+                </span>
               </span>
-              {i < path.length - 1 ? (
+              {i < path.length - 1 && path[i] !== path[i + 1] ? (
                 <ArrowRight
                   className={`w-3.5 h-3.5 shrink-0 ${
                     flowMetrics.segments[i]?.backward ? 'text-rose-400' : 'text-emerald-400'
                   }`}
                 />
+              ) : i < path.length - 1 ? (
+                <span className="text-slate-600 text-[10px] px-0.5">+</span>
               ) : null}
             </span>
           ))}
         </div>
-        <p className="mt-2 text-[11px] text-slate-500">
-          Step {step + 1} of {path.length}: <span className="text-slate-300">{currentTask}</span>
-        </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => {
-            setStep(0);
-            setTraveling(false);
-            setPlaying(true);
-            measureCenters();
-          }}
+          onClick={resetAnimation}
           className="px-3 py-2 rounded-xl bg-cyan-600/90 text-white text-sm font-semibold hover:bg-cyan-500"
         >
-          Replay animation
+          Replay full flow
         </button>
         <button
           type="button"
@@ -460,24 +609,22 @@ export function LineBalancingFlowPanel({
         >
           {playing ? 'Pause' : 'Resume'}
         </button>
-        {step < path.length - 1 && (
-          <button
-            type="button"
-            onClick={() => {
-              if (step >= path.length - 1 || traveling) return;
-              const seg = flowMetrics.segments[step];
-              setTraveling(true);
-              window.setTimeout(() => {
-                setStep((s) => Math.min(path.length - 1, s + 1));
-                setTraveling(false);
-              }, seg?.backward ? 1150 : 880);
-            }}
-            className="px-3 py-2 rounded-xl border border-slate-600 bg-slate-800 text-slate-200 text-sm font-medium hover:bg-slate-700"
-          >
-            Next step
-          </button>
-        )}
       </div>
     </div>
   );
+}
+
+function posLabel(stationIndex: number) {
+  return `WS${stationIndex}`;
+}
+
+function findLastDwellTaskIndex(
+  plan: ReturnType<typeof buildFlowPlaybackPlan>,
+  beforeIndex: number,
+): number {
+  for (let i = beforeIndex - 1; i >= 0; i--) {
+    const s = plan[i];
+    if (s.kind === 'dwell') return s.taskIndex;
+  }
+  return 0;
 }

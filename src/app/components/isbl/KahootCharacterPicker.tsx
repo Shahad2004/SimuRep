@@ -36,16 +36,7 @@ export function KahootCharacterPicker({
       className="space-y-4"
     >
       <div className="text-center">
-        <motion.div
-          animate={{ scale: [1, 1.02, 1] }}
-          transition={{ duration: 1.8, repeat: Infinity }}
-          className="inline-block rounded-full bg-gradient-to-r from-[#CE1126] via-white/10 to-[#007A3D] p-[2px]"
-        >
-          <motion.div layout className="rounded-full bg-slate-950 px-5 py-2 text-xs font-bold uppercase tracking-widest text-white">
-            Kahoot-style pick
-          </motion.div>
-        </motion.div>
-        <h2 className="mt-4 text-2xl md:text-3xl font-black text-white tracking-tight">
+        <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">
           Tap your Nashama player
         </h2>
         <p className="mt-2 text-sm text-slate-400 max-w-md mx-auto">

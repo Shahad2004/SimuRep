@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Users,
   FolderKanban,
-  BarChart3,
   Clock,
-  Sparkles,
   PlusCircle,
   Hash,
   MessageSquare,
@@ -14,8 +12,6 @@ import {
 } from 'lucide-react';
 import {
   loadInstructorClasses,
-  loadLabPerformanceResults,
-  loadStudentJoined,
   saveInstructorClasses,
   generatePin,
   createSharedLabCode,
@@ -76,22 +72,12 @@ export function InstructorDashboard() {
 
   const [showAddTemplate, setShowAddTemplate] = useState(false);
   const [templateDropdownId, setTemplateDropdownId] = useState<LabTemplateId | ''>('');
-  const [scenarioTitle, setScenarioTitle] = useState('');
-  const [scenarioProduct, setScenarioProduct] = useState('Single product');
-  const [scenarioContext, setScenarioContext] = useState('');
-  const [scenarioObjectives, setScenarioObjectives] = useState('');
-  const [scenarioAnalysis, setScenarioAnalysis] = useState('');
-  const [metricOneLabel, setMetricOneLabel] = useState('Service level');
-  const [metricOneDesc, setMetricOneDesc] = useState('Percentage of customer demand that is fully met each round.');
-  const [metricTwoLabel, setMetricTwoLabel] = useState('Total cost');
-  const [metricTwoDesc, setMetricTwoDesc] = useState('Sum of ordering, holding, and stockout costs across rounds.');
-  const [metricThreeLabel, setMetricThreeLabel] = useState('Inventory at each station');
-  const [metricThreeDesc, setMetricThreeDesc] = useState('How stock is distributed across supplier, factory, warehouses, and DC.');
   const [productionH, setProductionH] = useState(2);
   const [productionD, setProductionD] = useState(10000);
   const [productionS, setProductionS] = useState(100);
   const [productionPattern, setProductionPattern] = useState<ProductionPlanningScenario['pattern']>('horizontal');
   const [lineCycleTimeSec, setLineCycleTimeSec] = useState(60);
+  const [lineLevel3CycleTimeSec, setLineLevel3CycleTimeSec] = useState(55);
   const [copiedLabId, setCopiedLabId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -99,7 +85,7 @@ export function InstructorDashboard() {
   }, [classes]);
 
   const selectedClass = useMemo(
-    () => classes.find((c) => c.id === selectedClassId) ?? classes[0] ?? null,
+    () => classes.find((c) => c.id === selectedClassId) ?? null,
     [classes, selectedClassId],
   );
 
@@ -108,52 +94,50 @@ export function InstructorDashboard() {
     [templateDropdownId],
   );
 
-  const applyTemplateDefaults = (template: LabTemplate) => {
-    setScenarioTitle(template.name);
-    setScenarioProduct(template.id === 'line-balancing' ? 'T-shirt' : 'Single product');
-    setScenarioContext(
-      template.id === 'production-planning'
-        ? 'Students set order quantity (Q) each period. Total cost C = (Q/2)×H + (D×S)/Q. You set H, D, S and demand pattern.'
-        : template.id === 'line-balancing'
-          ? 'A small T-shirt factory needs to balance its line. Students place fixed tasks like cutting fabric panels, sewing sleeves, closing side seams, folding, and packing into workstations. Each station must stay within the cycle time.'
-        : 'You are responsible for coordinating this supply chain to satisfy customer demand while controlling total cost.',
-    );
-    setScenarioObjectives(
-      template.id === 'production-planning'
-        ? '1. Choose order quantity Q each period to minimize total cost.\n2. Balance holding cost (Q/2)×H with ordering cost (D×S)/Q.\n3. Adapt to the demand pattern (horizontal, trend, or seasonal).'
-        : template.id === 'line-balancing'
-          ? '1. Keep every T-shirt workstation within cycle time.\n2. Spread cutting, sewing, and packing work so the line feels balanced.\n3. Improve efficiency by reducing idle time and avoiding overload.'
-        : '1. Maintain high service level while avoiding frequent stockouts.\n2. Minimize total cost by balancing ordering and holding costs.\n3. Observe how your decisions impact upstream inventory and flow.',
-    );
-    setScenarioAnalysis(
-      template.id === 'production-planning'
-        ? 'Focus on total cost, order quantity, and how well your Q matched the scenario.'
-        : template.id === 'line-balancing'
-          ? 'Focus on the bottleneck station (highest workload), idle time distribution, and the efficiency/balance delay metrics.'
-        : 'Focus on inventory levels, total cost breakdown, and service level trends.',
-    );
+  const buildScenarioForTemplate = (template: LabTemplate): ScenarioDefinition => {
     if (template.id === 'production-planning') {
-      setMetricOneLabel('Total cost');
-      setMetricOneDesc('C = (Q/2)×H + (D×S)/Q per period.');
-      setMetricTwoLabel('Order quantity');
-      setMetricTwoDesc('Your chosen Q each period.');
-      setMetricThreeLabel('Demand pattern');
-      setMetricThreeDesc('Horizontal, trend, or seasonal as set by instructor.');
-    } else if (template.id === 'line-balancing') {
-      setMetricOneLabel('Cycle time (bottleneck)');
-      setMetricOneDesc('Time of the busiest station; must be ≤ target cycle time.');
-      setMetricTwoLabel('Line efficiency');
-      setMetricTwoDesc('Efficiency = (sum of task times) / (stations × cycle time).');
-      setMetricThreeLabel('Balance delay');
-      setMetricThreeDesc('Balance delay = 1 − efficiency. Lower is better.');
-    } else {
-      setMetricOneLabel('Service level');
-      setMetricOneDesc('Percentage of customer demand that is fully met each round.');
-      setMetricTwoLabel('Total cost');
-      setMetricTwoDesc('Sum of ordering, holding, and stockout costs across rounds.');
-      setMetricThreeLabel('Inventory at each station');
-      setMetricThreeDesc('How stock is distributed across supplier, factory, warehouses, and DC.');
+      return {
+        title: template.name,
+        productName: 'Single product',
+        context: 'Students set order quantity (Q) each period to minimize total cost.',
+        objectives: 'Balance holding and ordering costs across periods.',
+        analysisGuidance: 'Review total cost and order quantity each period.',
+        keyMetrics: [
+          { id: 'm1', label: 'Total cost', description: 'C = (Q/2)×H + (D×S)/Q per period.' },
+          { id: 'm2', label: 'Order quantity', description: 'Your chosen Q each period.' },
+          { id: 'm3', label: 'Demand pattern', description: 'As set by the instructor.' },
+        ],
+      };
     }
+    if (template.id === 'line-balancing') {
+      return {
+        title: template.name,
+        productName: 'T-shirt',
+        context: 'Balance the Nashama fan-shirt production line within cycle time.',
+        objectives: 'Build workstations, assign tasks, and balance the line.',
+        analysisGuidance: 'Check overload, idle time, and flow direction.',
+        keyMetrics: [
+          { id: 'm1', label: 'Cycle time', description: 'No station may exceed the target cycle time.' },
+          { id: 'm2', label: 'Line efficiency', description: 'Work content vs. stations × cycle time.' },
+          { id: 'm3', label: 'Balance delay', description: 'Lower is better.' },
+        ],
+      };
+    }
+    return {
+      title: template.name,
+      productName: 'Single product',
+      context: 'Coordinate the supply chain to satisfy demand while controlling cost.',
+      objectives: 'Maintain service level and control total cost.',
+      analysisGuidance: 'Review inventory, cost, and service level.',
+      keyMetrics: [
+        { id: 'm1', label: 'Service level', description: 'Demand met each round.' },
+        { id: 'm2', label: 'Total cost', description: 'Ordering, holding, and stockout costs.' },
+        { id: 'm3', label: 'Inventory', description: 'Stock across the chain.' },
+      ],
+    };
+  };
+
+  const applyTemplateDefaults = (template: LabTemplate) => {
     if (template.id === 'line-balancing') {
       setLineCycleTimeSec(60);
     }
@@ -185,18 +169,7 @@ export function InstructorDashboard() {
   const handleCreateLabFromTemplate = () => {
     if (!selectedClass || !selectedTemplateFromDropdown) return;
     const template = selectedTemplateFromDropdown;
-    const scenario: ScenarioDefinition = {
-      title: scenarioTitle.trim() || template.name,
-      productName: scenarioProduct.trim() || 'Single product',
-      context: scenarioContext.trim(),
-      objectives: scenarioObjectives.trim(),
-      analysisGuidance: scenarioAnalysis.trim(),
-      keyMetrics: [
-        { id: 'm1', label: metricOneLabel.trim() || 'Metric 1', description: metricOneDesc.trim() || '' },
-        { id: 'm2', label: metricTwoLabel.trim() || 'Metric 2', description: metricTwoDesc.trim() || '' },
-        { id: 'm3', label: metricThreeLabel.trim() || 'Metric 3', description: metricThreeDesc.trim() || '' },
-      ],
-    };
+    const scenario = buildScenarioForTemplate(template);
     const lab: Lab = {
       id: `lab_${Date.now()}`,
       templateId: template.id,
@@ -223,6 +196,7 @@ export function InstructorDashboard() {
       ];
       lab.lineBalancing = {
         cycleTimeSec: Math.max(28, Math.round(lineCycleTimeSec || 60)),
+        level3CycleTimeSec: Math.max(28, Math.round(lineLevel3CycleTimeSec || 55)),
         workstationCostCoins: 100,
         tasks,
       };
@@ -279,143 +253,19 @@ export function InstructorDashboard() {
     }
   };
 
-  const totalClasses = classes.length;
-  const totalLabs = classes.reduce((n, c) => n + c.labs.length, 0);
-  const joinedEntries = loadStudentJoined();
-  const performanceResults = loadLabPerformanceResults();
-  const classPerformance = classes.map((cls) => {
-    const joinedCount = joinedEntries.filter((entry) => entry.classId === cls.id).length;
-    const results = performanceResults.filter((result) => result.classId === cls.id);
-    const efficiencies = results
-      .map((result) => result.metrics.efficiencyPct)
-      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-    const idleTimes = results
-      .map((result) => result.metrics.idleTimeSec)
-      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-    const avgEfficiency =
-      efficiencies.length > 0 ? Math.round(efficiencies.reduce((total, value) => total + value, 0) / efficiencies.length) : null;
-    const avgIdle =
-      idleTimes.length > 0 ? Math.round(idleTimes.reduce((total, value) => total + value, 0) / idleTimes.length) : null;
-    const bestEfficiency = efficiencies.length > 0 ? Math.max(...efficiencies) : null;
-    const lastSubmission = results[0]?.submittedAt;
-    return {
-      classId: cls.id,
-      className: cls.name,
-      labsCount: cls.labs.length,
-      joinedCount,
-      submissionsCount: results.length,
-      avgEfficiency,
-      avgIdle,
-      bestEfficiency,
-      lastSubmission,
-    };
-  });
-
   return (
     <div className="container mx-auto p-6 space-y-6">
-      {/* Top: Overview */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-slate-300 text-xs uppercase tracking-wide">
             <FolderKanban className="w-4 h-4 text-sky-400" />
-            Instructor Control Room
+            Instructor
           </div>
-          <h2 className="mt-1 text-2xl font-semibold text-white">
-            Design and launch your supply chain labs
-          </h2>
+          <h2 className="mt-1 text-2xl font-semibold text-white">Your classes</h2>
           <p className="mt-1 text-sm text-slate-400 max-w-xl">
-            Create classes from ready‑made lab templates, define rich industrial scenarios, and
-            share them instantly with your students.
+            Add a class, create a lab, and share the PIN. After Level 3 ends, open the class to see the leaderboard.
           </p>
         </div>
-
-        <div className="grid grid-cols-3 gap-3 min-w-[260px]">
-          <div className="bg-slate-900/80 border border-slate-700/70 rounded-xl px-4 py-3 shadow-md">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>Your classes</span>
-              <Users className="w-4 h-4 text-sky-400" />
-            </div>
-            <div className="text-2xl font-semibold text-white">{totalClasses}</div>
-          </div>
-          <div className="bg-slate-900/80 border border-slate-700/70 rounded-xl px-4 py-3 shadow-md">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>Labs</span>
-              <BarChart3 className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div className="text-2xl font-semibold text-white">{totalLabs}</div>
-          </div>
-          <div className="bg-slate-900/80 border border-slate-700/70 rounded-xl px-4 py-3 shadow-md">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>Templates</span>
-              <Sparkles className="w-4 h-4 text-amber-300" />
-            </div>
-            <div className="text-2xl font-semibold text-white">{LAB_TEMPLATES.length}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Class performance */}
-      <div className="bg-slate-900/80 border border-slate-700/70 rounded-2xl p-5">
-        <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-white">Class performance</h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Overall view from submitted line-balancing attempts on this device.
-            </p>
-          </div>
-          <div className="text-xs text-slate-500">
-            {performanceResults.length} submission{performanceResults.length !== 1 ? 's' : ''} recorded
-          </div>
-        </div>
-
-        {classes.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-center text-sm text-slate-400">
-            Add a class and launch a lab to start seeing performance.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {classPerformance.map((perf) => (
-              <div key={perf.classId} className="rounded-xl border border-slate-700 bg-slate-950/35 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-white">{perf.className}</div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">
-                      {perf.labsCount} lab{perf.labsCount !== 1 ? 's' : ''} • {perf.joinedCount} joined
-                    </div>
-                  </div>
-                  <div className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300">
-                    {perf.submissionsCount} attempt{perf.submissionsCount !== 1 ? 's' : ''}
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <div className="rounded-lg bg-slate-900/70 border border-slate-800 p-3">
-                    <div className="text-[11px] text-slate-500">Avg efficiency</div>
-                    <div className="mt-1 text-lg font-semibold text-emerald-200">
-                      {perf.avgEfficiency == null ? '—' : `${perf.avgEfficiency}%`}
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/70 border border-slate-800 p-3">
-                    <div className="text-[11px] text-slate-500">Avg idle time</div>
-                    <div className="mt-1 text-lg font-semibold text-amber-200">
-                      {perf.avgIdle == null ? '—' : `${perf.avgIdle}s`}
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-slate-900/70 border border-slate-800 p-3">
-                    <div className="text-[11px] text-slate-500">Best run</div>
-                    <div className="mt-1 text-lg font-semibold text-sky-200">
-                      {perf.bestEfficiency == null ? '—' : `${perf.bestEfficiency}%`}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3 text-[11px] text-slate-500">
-                  {perf.lastSubmission ? `Last submission ${new Date(perf.lastSubmission).toLocaleString()}` : 'No submitted attempts yet.'}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Add class bar */}
@@ -605,50 +455,11 @@ export function InstructorDashboard() {
 
                     {selectedTemplateFromDropdown && (
                       <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-700">
-                          <div className="space-y-3">
-                            <label className="block text-xs font-semibold text-slate-300">Scenario title</label>
-                            <input
-                              value={scenarioTitle}
-                              onChange={(e) => setScenarioTitle(e.target.value)}
-                              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
-                              placeholder="e.g. Strategy Planning"
-                            />
-                            <label className="block text-xs font-semibold text-slate-300">Product</label>
-                            <select
-                              value={scenarioProduct}
-                              onChange={(e) => setScenarioProduct(e.target.value)}
-                              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
-                            >
-                              <option value="Single product">Single product</option>
-                              <option value="Widget A">Widget A</option>
-                              <option value="Component X">Component X</option>
-                              <option value="SKU-100">SKU-100</option>
-                              <option value="Custom">Custom</option>
-                            </select>
-                            <label className="block text-xs font-semibold text-slate-300">Industrial context</label>
-                            <textarea
-                              value={scenarioContext}
-                              onChange={(e) => setScenarioContext(e.target.value)}
-                              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white resize-none h-24"
-                              placeholder="Describe the scenario."
-                            />
-                          </div>
-                          <div className="space-y-3">
-                            <label className="block text-xs font-semibold text-slate-300">Decision focus (1‑2‑3)</label>
-                            <textarea
-                              value={scenarioObjectives}
-                              onChange={(e) => setScenarioObjectives(e.target.value)}
-                              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white resize-none h-20"
-                            />
-                            <label className="block text-xs font-semibold text-slate-300">Analysis guidance</label>
-                            <textarea
-                              value={scenarioAnalysis}
-                              onChange={(e) => setScenarioAnalysis(e.target.value)}
-                              className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white resize-none h-20"
-                            />
-                          </div>
-                        </div>
+                        {selectedTemplateFromDropdown.id === 'strategy-planning' && (
+                          <p className="pt-2 border-t border-slate-700 text-sm text-slate-400">
+                            Uses the built-in supply chain scenario. Students join with the PIN after you create the lab.
+                          </p>
+                        )}
 
                         {selectedTemplateFromDropdown.id === 'production-planning' && (
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-slate-700">
@@ -676,41 +487,34 @@ export function InstructorDashboard() {
                         )}
 
                         {selectedTemplateFromDropdown.id === 'line-balancing' && (
-                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2 border-t border-slate-700">
-                            <label className="block text-xs font-semibold text-slate-300">
-                              Cycle time (seconds)
+                          <div className="pt-2 border-t border-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <label className="block text-sm font-semibold text-slate-200">
+                              Cycle time — Level 1 &amp; 2 (seconds)
                               <input
                                 type="number"
                                 min="28"
                                 step="1"
                                 value={lineCycleTimeSec}
                                 onChange={(e) => setLineCycleTimeSec(Number(e.target.value) || 60)}
-                                className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                                className="mt-2 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
                               />
                             </label>
-                            <div className="md:col-span-3 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-400">
-                              Instructor controls Cycle Time only. Level 1 uses a fixed realistic garment task list and a fixed workstation cost of 100 coins.
-                            </div>
+                            <label className="block text-sm font-semibold text-slate-200">
+                              Cycle time — Level 3 (seconds)
+                              <input
+                                type="number"
+                                min="28"
+                                step="1"
+                                value={lineLevel3CycleTimeSec}
+                                onChange={(e) => setLineLevel3CycleTimeSec(Number(e.target.value) || 55)}
+                                className="mt-2 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                              />
+                            </label>
+                            <p className="sm:col-span-2 text-xs text-slate-500">
+                              Task list, workstation cost, and Nashama story are built in. Students only need your PIN to play.
+                            </p>
                           </div>
                         )}
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-slate-700">
-                          <div className="space-y-1">
-                            <div className="text-[11px] font-semibold text-slate-300">Key metric 1</div>
-                            <input value={metricOneLabel} onChange={(e) => setMetricOneLabel(e.target.value)} className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-xs text-white" />
-                            <textarea value={metricOneDesc} onChange={(e) => setMetricOneDesc(e.target.value)} className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-200 resize-none h-14" />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="text-[11px] font-semibold text-slate-300">Key metric 2</div>
-                            <input value={metricTwoLabel} onChange={(e) => setMetricTwoLabel(e.target.value)} className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-xs text-white" />
-                            <textarea value={metricTwoDesc} onChange={(e) => setMetricTwoDesc(e.target.value)} className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-200 resize-none h-14" />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="text-[11px] font-semibold text-slate-300">Key metric 3</div>
-                            <input value={metricThreeLabel} onChange={(e) => setMetricThreeLabel(e.target.value)} className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-xs text-white" />
-                            <textarea value={metricThreeDesc} onChange={(e) => setMetricThreeDesc(e.target.value)} className="w-full rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-[11px] text-slate-200 resize-none h-14" />
-                          </div>
-                        </div>
 
                         <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-700">
                           <button
@@ -730,6 +534,7 @@ export function InstructorDashboard() {
                     )}
                   </div>
                 )}
+
               </div>
             ) : (
               <div className="bg-slate-900/70 border border-dashed border-slate-700 rounded-2xl p-6 text-sm text-slate-400 flex items-center justify-center h-full">

@@ -12,6 +12,7 @@ import {
   type StudentJoinedEntry,
   type InstructorClass,
 } from '@/app/types/classes';
+import { APP_NAME } from '@/app/brand';
 import girlExplain from '@/assets/line-balancing/character/girl_explain.png';
 import { getWorkstationImageUrl } from './workstationAssets';
 
@@ -116,7 +117,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
     <div className="container mx-auto p-6 max-w-6xl">
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-white">My dashboard</h2>
-        <p className="text-sm text-slate-400 mt-1">Your Virtual Lab games, classes, and instructor feedback.</p>
+        <p className="text-sm text-slate-400 mt-1">Your {APP_NAME} games, classes, and instructor feedback.</p>
       </div>
 
       {/* Student intro */}
@@ -151,7 +152,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
                 </div>
                 <motion.img
                   src={girlExplain}
-                  alt="Virtual Lab guide"
+                  alt="LineUp guide"
                   animate={{ y: [0, -6, 0] }}
                   transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                   className="w-24 object-contain drop-shadow-[0_12px_28px_rgba(0,0,0,0.45)]"

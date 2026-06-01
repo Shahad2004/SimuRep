@@ -175,8 +175,14 @@ function consolidateNearEmptyStations(
   }));
 }
 
+/** Collapse consecutive visits to the same workstation (matches flow animation hops). */
 export function formatStationPath(path: number[]): string {
-  return path.map((n) => `WS${n}`).join(' → ');
+  if (path.length === 0) return '';
+  const parts: string[] = [`WS${path[0]}`];
+  for (let i = 1; i < path.length; i++) {
+    if (path[i] !== path[i - 1]) parts.push(`WS${path[i]}`);
+  }
+  return parts.join(' → ');
 }
 
 /** Educational bullets comparing a student layout to the industrial recommendation */
@@ -450,7 +456,8 @@ export function computeFlowMetrics(
   for (let i = 1; i < stationPath.length; i++) {
     const from = stationPath[i - 1];
     const to = stationPath[i];
-    const backward = to < from;
+    const sameStation = from === to;
+    const backward = !sameStation && to < from;
     if (backward) {
       backtrackingCount += 1;
       transportationWaste += from - to;
@@ -458,8 +465,9 @@ export function computeFlowMetrics(
     segments.push({ from, to, backward });
   }
 
-  const totalTransfers = Math.max(0, stationPath.length - 1);
-  const forwardTransfers = segments.filter((s) => !s.backward).length;
+  const moveSegments = segments.filter((s) => s.from !== s.to);
+  const totalTransfers = moveSegments.length;
+  const forwardTransfers = moveSegments.filter((s) => !s.backward).length;
   const flowEfficiencyPct =
     totalTransfers > 0 ? Math.round((forwardTransfers / totalTransfers) * 100) : 100;
 
@@ -472,6 +480,21 @@ export function computeFlowMetrics(
     flowEfficiencyPct,
     segments,
   };
+}
+
+/** Flow metrics for the industrial forward-path layout (Level 2 target). */
+export function computeIndustrialTargetFlowMetrics(
+  orderedTasks: LineBalancingTask[],
+  taskOrder: string[],
+  cycleTimeSec: number,
+): FlowMetrics {
+  const optimal = industrialOptimalAssignment(orderedTasks, cycleTimeSec);
+  const stationIds = optimal.map((s) => s.id);
+  const assignment: Record<string, string[]> = {};
+  for (const st of optimal) assignment[st.id] = st.tasks.map((t) => t.id);
+  const path = buildStationPath(taskOrder, assignment, stationIds);
+  const labelMap = new Map(orderedTasks.map((t) => [t.id, t.label]));
+  return computeFlowMetrics(taskOrder, labelMap, path);
 }
 
 /** Flow-optimal uses same contiguous partition (forward-only station indices) */

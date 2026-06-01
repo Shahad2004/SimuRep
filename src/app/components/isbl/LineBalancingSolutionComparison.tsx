@@ -4,7 +4,6 @@ import type { LineBalancingTask } from '@/app/types/classes';
 import {
   assignmentToStationLoads,
   buildStationPath,
-  calcMinStations,
   computeFlowMetrics,
   industrialOptimalAssignment,
   insightsComparedToIndustrial,
@@ -215,7 +214,6 @@ export function LineBalancingSolutionComparison({
   );
 
   const totalProc = sum(tasks.map((t) => t.timeSec));
-  const minStations = calcMinStations(totalProc, cycleTimeSec);
 
   const playerEfficiency =
     playerStationIds.length > 0 ? totalProc / (playerStationIds.length * cycleTimeSec) : 0;
@@ -302,11 +300,6 @@ export function LineBalancingSolutionComparison({
           betterWhenLower
           suffix="s"
         />
-        <MetricPill
-          label="Min stations (theory)"
-          yours={minStations}
-          optimal={minStations}
-        />
       </div>
 
       {showFlow && (
@@ -330,7 +323,7 @@ export function LineBalancingSolutionComparison({
             betterWhenLower
           />
           <MetricPill
-            label="Transfers"
+            label="Moves between stations"
             yours={playerFlow.totalTransfers}
             optimal={optimalFlow.totalTransfers}
             betterWhenLower

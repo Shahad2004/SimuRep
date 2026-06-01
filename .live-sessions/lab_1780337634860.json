@@ -1,0 +1,17 @@
+{
+  "labId": "lab_1780337634860",
+  "pin": "244618",
+  "level3Status": "live",
+  "updatedAt": "2026-06-01T18:30:07.328Z",
+  "players": {
+    "player_1780337662568_72512": {
+      "playerId": "player_1780337662568_72512",
+      "displayName": "Mohammed Abu Zreiq",
+      "characterId": "mohammed_abu_zreiq",
+      "progress": "level3_active",
+      "joinedAt": "2026-06-01T18:30:07.307Z",
+      "lastSeenAt": "2026-06-01T18:30:07.320Z"
+    }
+  },
+  "level3StartedAt": "2026-06-01T18:16:54.481Z"
+}

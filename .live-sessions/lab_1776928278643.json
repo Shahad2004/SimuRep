@@ -2,22 +2,14 @@
   "labId": "lab_1776928278643",
   "pin": "933305",
   "level3Status": "live",
-  "updatedAt": "2026-05-24T13:22:21.385Z",
+  "updatedAt": "2026-05-31T11:21:00.704Z",
   "players": {
     "player_1779521131053_18029": {
       "playerId": "player_1779521131053_18029",
       "displayName": "class-1 · Student",
       "progress": "level3_active",
-      "joinedAt": "2026-05-24T12:23:56.115Z",
-      "lastSeenAt": "2026-05-24T13:22:20.978Z",
-      "totalScore": 57,
-      "balanceEfficiencyPct": 55,
-      "flowEfficiencyPct": 100,
-      "idleTimeReductionPct": 0,
-      "wasteReductionPct": 100,
-      "workstationScorePct": 64,
-      "speedScorePct": 0,
-      "rank": "Production Supervisor"
+      "joinedAt": "2026-05-31T11:21:00.694Z",
+      "lastSeenAt": "2026-05-31T11:21:00.701Z"
     }
   },
   "level3StartedAt": "2026-05-23T12:19:01.799Z"

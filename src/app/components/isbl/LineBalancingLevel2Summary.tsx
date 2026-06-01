@@ -10,6 +10,7 @@ import {
   type FlowMetrics,
 } from './lineBalancingEngine';
 import { LineBalancingFlowPanel } from './LineBalancingFlowPanel';
+import { flowMetricsSignature } from './lineBalancingFlowPlayback';
 
 function FlowPathStrip({ metrics, label }: { metrics: FlowMetrics; label: string }) {
   const pathStr = formatStationPath(metrics.stationPath);
@@ -231,13 +232,15 @@ export function LineBalancingLevel2Summary({
           Replay your Level 2 workflow animation
         </div>
         <LineBalancingFlowPanel
+          key={flowMetricsSignature(level2Flow, level2StationIds.length, level2StationIds)}
           stationCount={level2StationIds.length}
           flowMetrics={level2Flow}
           stationIds={level2StationIds}
           assignment={level2Assignment}
           tasks={tasks}
           taskOrder={taskOrder}
-          autoPlay={false}
+          cycleTimeSec={cycleTimeSec}
+          autoPlay
         />
       </div>
     </div>

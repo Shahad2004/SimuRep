@@ -11,6 +11,8 @@ export const NASHAMA_HEADER_OFFSET_CLASS = 'pt-[6.5rem] md:pt-[8rem] lg:pt-[9.75
 type Props = {
   secondsLeft: number;
   coins: number;
+  cycleTimeSec?: number;
+  totalProcessingTimeSec?: number;
   onLeave: () => void;
   showHint?: boolean;
   onHint?: () => void;
@@ -20,6 +22,8 @@ type Props = {
 export function NashamaLevel3Header({
   secondsLeft,
   coins,
+  cycleTimeSec,
+  totalProcessingTimeSec,
   onLeave,
   showHint,
   onHint,
@@ -57,6 +61,24 @@ export function NashamaLevel3Header({
         </div>
 
         <div className="flex min-w-0 items-center justify-end gap-1 md:gap-1.5">
+          {totalProcessingTimeSec != null && totalProcessingTimeSec > 0 && (
+            <div className="hidden md:flex shrink-0 flex-col items-end rounded-lg border border-amber-400/40 bg-amber-950/45 px-2 py-1">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-amber-400/90">Total proc.</span>
+              <span className="text-sm font-black tabular-nums text-white leading-none">
+                {totalProcessingTimeSec}
+                <span className="text-[10px] font-semibold text-amber-200 ml-0.5">s</span>
+              </span>
+            </div>
+          )}
+          {cycleTimeSec != null && cycleTimeSec > 0 && (
+            <div className="hidden sm:flex shrink-0 flex-col items-end rounded-lg border border-cyan-400/45 bg-cyan-950/50 px-2 py-1 md:px-2.5">
+              <span className="text-[8px] font-bold uppercase tracking-wider text-cyan-400/90">Cycle time</span>
+              <span className="text-sm font-black tabular-nums text-white leading-none">
+                {cycleTimeSec}
+                <span className="text-[10px] font-semibold text-cyan-200 ml-0.5">s</span>
+              </span>
+            </div>
+          )}
           <div className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-500/35 bg-black/55 px-2 py-1 md:gap-1.5 md:px-2.5 md:py-1.5">
             <Timer className={`h-3.5 w-3.5 shrink-0 ${secondsLeft < 60 ? 'animate-pulse text-rose-400' : 'text-amber-300'}`} />
             <span className="text-xs font-bold tabular-nums text-white md:text-sm">{formatMMSS(secondsLeft)}</span>

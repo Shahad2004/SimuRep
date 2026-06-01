@@ -1,0 +1,27 @@
+{
+  "labId": "lab_1780338660099",
+  "pin": "266618",
+  "level3Status": "live",
+  "updatedAt": "2026-06-01T18:38:29.825Z",
+  "players": {
+    "player_1780338827969_10766": {
+      "playerId": "player_1780338827969_10766",
+      "displayName": "Mohammed Abu Zreiq",
+      "characterId": "mohammed_abu_zreiq",
+      "progress": "level3_complete",
+      "joinedAt": "2026-06-01T18:36:55.484Z",
+      "lastSeenAt": "2026-06-01T18:38:27.040Z",
+      "totalScore": 60,
+      "balanceEfficiencyPct": 83,
+      "flowEfficiencyPct": 76,
+      "idleTimeReductionPct": 0,
+      "wasteReductionPct": 0,
+      "workstationScorePct": 100,
+      "speedScorePct": 78,
+      "rank": "Production Supervisor",
+      "completionSeconds": 92,
+      "finishedAt": "2026-06-01T18:38:24.243Z"
+    }
+  },
+  "level3StartedAt": "2026-06-01T18:36:46.965Z"
+}

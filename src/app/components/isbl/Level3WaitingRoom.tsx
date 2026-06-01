@@ -15,7 +15,7 @@ import {
   setStoredWaitingCharacterId,
   type WaitingRoomCharacterId,
 } from './waitingRoomCharacters';
-import htuLogo from '@/assets/icons/htu-industrial-virtual-lab.png';
+import { APP_NAME, appLogo } from '@/app/brand';
 
 function PlayerAvatar({
   characterId,
@@ -195,7 +195,7 @@ export function Level3WaitingRoom({
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-3">
             {activeCharacter && <PlayerAvatar characterId={activeCharacter.id} size="sm" />}
-            <img src={htuLogo} alt="" className="h-10 w-auto" />
+            <img src={appLogo} alt={APP_NAME} className="h-10 w-auto object-contain" />
             <div>
               <div className="text-white font-bold">
                 {needsPick ? 'Choose your player' : 'Waiting Room — Level 3'}
@@ -252,7 +252,7 @@ export function Level3WaitingRoom({
                 )}
                 <p className="text-slate-400 mt-3 text-sm max-w-lg mx-auto">
                   Stay on this screen — when your instructor starts the Nashama World Cup challenge, everyone enters
-                  together like Kahoot.
+                  together at the same time.
                 </p>
                 <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#007A3D]/40 bg-[#007A3D]/10 px-4 py-2 text-sm text-emerald-200">
                   <Shirt className="w-4 h-4" />

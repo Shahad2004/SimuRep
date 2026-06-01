@@ -43,14 +43,28 @@ export interface LineBalancingTask {
   sequenceOrder?: number;
 }
 
-/** Line Balancing scenario params. Level 1 keeps tasks and station cost fixed; instructor sets CT. */
+/** Line Balancing scenario params. Tasks and station cost are fixed; instructor sets cycle times. */
 export interface LineBalancingScenario {
-  /** Target cycle time (seconds) */
+  /** Cycle time (seconds) for Level 1 and Level 2 */
   cycleTimeSec: number;
+  /** Cycle time (seconds) for Level 3 (Nashama). Falls back to `cycleTimeSec` if omitted. */
+  level3CycleTimeSec?: number;
   /** Cost per workstation (coins) */
   workstationCostCoins: number;
   /** Work elements the student assigns to stations */
   tasks: LineBalancingTask[];
+}
+
+const MIN_LINE_CYCLE_TIME_SEC = 28;
+
+/** Resolved Level 3 cycle time from lab config (backward-compatible with single-field labs). */
+export function resolveLevel3CycleTimeSec(lb: LineBalancingScenario | undefined): number | undefined {
+  if (!lb) return undefined;
+  const l3 = Number(lb.level3CycleTimeSec);
+  if (Number.isFinite(l3) && l3 > 0) return Math.max(MIN_LINE_CYCLE_TIME_SEC, Math.round(l3));
+  const shared = Number(lb.cycleTimeSec);
+  if (Number.isFinite(shared) && shared > 0) return Math.max(MIN_LINE_CYCLE_TIME_SEC, Math.round(shared));
+  return undefined;
 }
 
 export interface Lab {
