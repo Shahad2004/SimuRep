@@ -7,7 +7,7 @@ import type { LineBalancingTask } from '@/app/types/classes';
 
 import { nasahamaGirl, NASAHAMA_GIRL_INTRINSIC } from './nashamaLevel3Assets';
 
-type L3BriefingGuide = 'story' | 'rules' | 'start';
+type L3BriefingGuide = 'story' | 'rules' | 'scenario' | 'start';
 
 type Props = {
   tasks: LineBalancingTask[];
@@ -16,6 +16,13 @@ type Props = {
   sequencedTasks: LineBalancingTask[];
   onStart: () => void;
   disabled?: boolean;
+};
+
+const GUIDE_STEP_NUMBER: Record<L3BriefingGuide, number> = {
+  story: 1,
+  rules: 2,
+  scenario: 3,
+  start: 4,
 };
 
 function WaveformIcon() {
@@ -53,6 +60,60 @@ function WorldCupRushCharacter() {
   );
 }
 
+function ScenarioStoryBlock() {
+  const objectives = [
+    'Balance workstations efficiently',
+    'Optimize production flow',
+    'Minimize bottlenecks and delays',
+    'Meet customer demand before time runs out',
+  ];
+
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
+      <WorldCupRushCharacter />
+
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#007A3D]">Al Nashama — Jordan</p>
+
+        <h1 className="mt-1 text-xl font-bold uppercase leading-tight tracking-wide text-white md:text-2xl">
+          Nashama World Cup Challenge
+        </h1>
+
+        <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-200/95 md:text-[15px]">
+          <p>Jordan has qualified for the World Cup.</p>
+          <p>
+            Thousands of fans are waiting for their official Nashama shirts before the opening match.
+          </p>
+          <p>
+            As the lead Industrial Engineer of the Nashama T-Shirt Factory, your mission is to ensure every shirt is
+            produced and delivered on time.
+          </p>
+          <p>
+            But there is a problem.
+          </p>
+          <p>
+            The current production line is inefficient, workflows are causing delays, and demand is higher than ever.
+          </p>
+          <p>Using everything you learned in Levels 1 and 2, you must:</p>
+          <ul className="space-y-1.5">
+            {objectives.map((item) => (
+              <li key={item} className="flex gap-2">
+                <span className="shrink-0 text-[#007A3D]" aria-hidden>
+                  ✅
+                </span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+          <p>Every decision affects factory performance.</p>
+          <p className="font-semibold text-white">Every second matters.</p>
+          <p className="font-semibold text-[#CE1126]">Can you deliver victory before kickoff?</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function NashamaLevel3BriefingScreen({
   tasks,
   cycleTimeSec,
@@ -65,62 +126,74 @@ export function NashamaLevel3BriefingScreen({
   const [guideStep, setGuideStep] = useState<L3BriefingGuide>('story');
 
   const advanceGuide = () => {
-    setGuideStep((s) => (s === 'story' ? 'rules' : s === 'rules' ? 'start' : 'start'));
+    setGuideStep((s) => {
+      if (s === 'story') return 'rules';
+      if (s === 'rules') return 'scenario';
+      if (s === 'scenario') return 'start';
+      return 'start';
+    });
   };
+
+  const scenarioFocused = guideStep === 'story' || guideStep === 'scenario';
+  const isScenarioStep = guideStep === 'scenario';
 
   return (
     <>
-      <main className="relative mx-auto flex h-full min-h-0 max-w-6xl flex-col justify-center overflow-hidden px-4 pb-20 md:px-6">
+      <main className="relative mx-auto flex w-full max-w-6xl flex-col justify-start px-4 pb-24 pt-2 md:px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="w-full overflow-hidden rounded-2xl border border-[#CE1126]/35 bg-black/55 p-4 shadow-2xl shadow-black/50 backdrop-blur-md md:p-6 lg:p-7"
+          className={`w-full rounded-2xl border border-[#CE1126]/35 bg-black/55 p-4 shadow-2xl shadow-black/50 backdrop-blur-md md:p-6 lg:p-7 ${
+            isScenarioStep ? 'max-h-[calc(100dvh-10rem)] overflow-y-auto' : ''
+          }`}
         >
           <GuideCoachStrip
             show
-            step={guideStep === 'story' ? 1 : guideStep === 'rules' ? 2 : 3}
-            totalSteps={3}
+            step={GUIDE_STEP_NUMBER[guideStep]}
+            totalSteps={4}
             title={
               guideStep === 'story'
                 ? 'Read the mission'
                 : guideStep === 'rules'
                   ? 'Know the rules'
-                  : 'Start building'
+                  : guideStep === 'scenario'
+                    ? 'Read the scenario'
+                    : 'Start building'
             }
             onNext={guideStep === 'start' ? undefined : advanceGuide}
-            nextLabel={guideStep === 'rules' ? 'Almost there' : 'Next'}
+            nextLabel={
+              guideStep === 'rules' ? 'Almost there' : guideStep === 'scenario' ? 'Got it' : 'Next'
+            }
           >
             {guideStep === 'story'
               ? 'Jordan needs Nashama fan shirts before the World Cup match. Read the story — balance the line and the flow.'
               : guideStep === 'rules'
                 ? 'These precedence rules matter: earlier shirt steps must finish before later ones.'
-                : 'Press the glowing green button below when you are ready to enter the factory.'}
+                : guideStep === 'scenario'
+                  ? 'Read the full scenario below — understand the urgent fan shirt order before you enter the factory.'
+                  : 'Press the glowing green button below when you are ready to enter the factory.'}
           </GuideCoachStrip>
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_minmax(220px,280px)] lg:items-start">
-            <GuideFocusWrap focused={guideStep === 'story'} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
-              <p className="col-start-2 row-start-1 text-xs font-bold uppercase tracking-[0.28em] text-[#007A3D]">
-                Al Nashama — Jordan
-              </p>
+          <div
+            className={
+              isScenarioStep
+                ? 'space-y-4'
+                : 'grid gap-4 lg:grid-cols-[1fr_minmax(220px,280px)] lg:items-start'
+            }
+          >
+            <PlayHintPulse
+              active={isScenarioStep}
+              label="Scenario"
+              tone="green"
+              className={`min-w-0 ${isScenarioStep ? 'pt-10' : ''}`}
+            >
+              <GuideFocusWrap focused={scenarioFocused} className="min-w-0">
+                <ScenarioStoryBlock />
+              </GuideFocusWrap>
+            </PlayHintPulse>
 
-              <div className="col-start-1 row-start-2 self-start">
-                <WorldCupRushCharacter />
-              </div>
-
-              <h1 className="col-start-2 row-start-2 mt-2 text-2xl font-bold leading-tight text-white md:text-[1.65rem] lg:text-3xl">
-                Nashama T‑Shirt Factory — Urgent Fan Shirt Order
-              </h1>
-
-              <p className="col-start-2 row-start-3 mt-4 max-w-2xl text-sm leading-relaxed text-slate-200/95 md:text-[15px]">
-                The Jordan national team has qualified for the World Cup. Thousands of official Nashama fan shirts must be
-                produced and shipped before the first match. You are the{' '}
-                <strong className="text-white">lead industrial engineer</strong> — optimize{' '}
-                <strong className="text-[#CE1126]">workstation balancing</strong> and{' '}
-                <strong className="text-[#007A3D]">production flow</strong> together.
-              </p>
-            </GuideFocusWrap>
-
+            {!isScenarioStep && (
             <GuideFocusWrap focused={guideStep === 'rules'}>
               <PlayHintPulse active={guideStep === 'rules'} label="Rules" tone="green">
                 <div className="rounded-xl border-2 border-[#007A3D]/50 bg-black/45 p-4 lg:mt-0 shadow-[0_0_24px_rgba(0,122,61,0.2)]">
@@ -139,8 +212,10 @@ export function NashamaLevel3BriefingScreen({
                 </div>
               </PlayHintPulse>
             </GuideFocusWrap>
+            )}
           </div>
 
+          {guideStep !== 'scenario' && (
           <div className={`mt-6 grid grid-cols-2 gap-3 md:grid-cols-4 transition-opacity ${guideStep !== 'start' ? 'opacity-30' : ''}`}>
             {[
               { value: `${totalProcessingTimeSec}s`, label: 'Total processing', icon: LayoutGrid },
@@ -162,7 +237,10 @@ export function NashamaLevel3BriefingScreen({
               </div>
             ))}
           </div>
+          )}
 
+          {guideStep === 'start' && (
+          <>
           <button
             type="button"
             onClick={() => setShowAllTasks((v) => !v)}
@@ -185,6 +263,8 @@ export function NashamaLevel3BriefingScreen({
               ))}
             </div>
           )}
+          </>
+          )}
         </motion.div>
       </main>
 
@@ -201,7 +281,11 @@ export function NashamaLevel3BriefingScreen({
             {[0, 1, 2, 3].map((i) => (
               <span
                 key={i}
-                className={`h-2.5 w-2.5 rounded-full ${i === 0 ? 'bg-[#007A3D] shadow-[0_0_10px_rgba(0,122,61,0.8)]' : 'bg-slate-600'}`}
+                className={`h-2.5 w-2.5 rounded-full ${
+                  i < GUIDE_STEP_NUMBER[guideStep]
+                    ? 'bg-[#007A3D] shadow-[0_0_10px_rgba(0,122,61,0.8)]'
+                    : 'bg-slate-600'
+                }`}
               />
             ))}
           </div>

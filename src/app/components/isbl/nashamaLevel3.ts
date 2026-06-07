@@ -91,8 +91,6 @@ export type NashamaScoreBreakdown = {
   rank: NashamaRank;
 };
 
-const LEADERBOARD_KEY = 'nashama_worldcup_leaderboard_v1';
-
 /** Educational precedence rules shown in Level 3 UI */
 export const NASHAMA_PRECEDENCE_RULES = [
   'Fabric cutting must happen before sewing',
@@ -241,25 +239,20 @@ export function pickNashamaHint(params: {
   return 'Strong layout — run the simulation, then submit when flow and balance look good.';
 }
 
-export function loadNashamaLeaderboard(labId?: string): NashamaLeaderboardEntry[] {
-  if (typeof window === 'undefined') return [];
+import { fetchLabLeaderboard, saveLabLeaderboardEntry } from '@/app/services/dataStore';
+
+export async function loadNashamaLeaderboard(labId?: string) {
+  if (!labId) return [];
   try {
-    const raw = window.localStorage.getItem(LEADERBOARD_KEY);
-    if (!raw) return [];
-    const all = JSON.parse(raw) as NashamaLeaderboardEntry[];
-    const list = Array.isArray(all) ? all : [];
-    const filtered = labId ? list.filter((e) => !e.labId || e.labId === labId) : list;
-    return filtered.sort((a, b) => b.totalScore - a.totalScore).slice(0, 20);
+    return await fetchLabLeaderboard(labId);
   } catch {
     return [];
   }
 }
 
-export function saveNashamaLeaderboardEntry(entry: NashamaLeaderboardEntry): void {
-  if (typeof window === 'undefined') return;
-  const prev = loadNashamaLeaderboard();
-  const next = [entry, ...prev].sort((a, b) => b.totalScore - a.totalScore).slice(0, 50);
-  window.localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(next));
+export async function saveNashamaLeaderboardEntry(entry: NashamaLeaderboardEntry): Promise<void> {
+  if (!entry.labId) return;
+  await saveLabLeaderboardEntry(entry.labId, entry, 1);
 }
 
 export function analyzeNashamaLine(

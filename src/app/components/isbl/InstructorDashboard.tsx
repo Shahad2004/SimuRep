@@ -11,8 +11,6 @@ import {
   Check,
 } from 'lucide-react';
 import {
-  loadInstructorClasses,
-  saveInstructorClasses,
   generatePin,
   createSharedLabCode,
   type InstructorClass,
@@ -23,6 +21,7 @@ import {
   type ProductionPlanningScenario,
   type LineBalancingScenario,
 } from '@/app/types/classes';
+import { fetchInstructorClasses, saveInstructorClasses } from '@/app/services/dataStore';
 import { InstructorLiveSessionPanel } from './InstructorLiveSessionPanel';
 
 interface LabTemplate {
@@ -65,7 +64,9 @@ const LAB_TEMPLATES: LabTemplate[] = [
 ];
 
 export function InstructorDashboard() {
-  const [classes, setClasses] = useState<InstructorClass[]>(() => loadInstructorClasses());
+  const [classes, setClasses] = useState<InstructorClass[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState('');
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [showAddClassForm, setShowAddClassForm] = useState(false);
   const [newClassName, setNewClassName] = useState('');
@@ -81,8 +82,31 @@ export function InstructorDashboard() {
   const [copiedLabId, setCopiedLabId] = useState<string | null>(null);
 
   useEffect(() => {
-    saveInstructorClasses(classes);
-  }, [classes]);
+    let active = true;
+    void fetchInstructorClasses()
+      .then((data) => {
+        if (active) setClasses(data);
+      })
+      .catch((err) => {
+        if (active) setSaveError(err instanceof Error ? err.message : 'Failed to load classes');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const timer = window.setTimeout(() => {
+      void saveInstructorClasses(classes)
+        .then((saved) => setClasses(saved))
+        .catch((err) => setSaveError(err instanceof Error ? err.message : 'Failed to save classes'));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [classes, loading]);
 
   const selectedClass = useMemo(
     () => classes.find((c) => c.id === selectedClassId) ?? null,
@@ -255,6 +279,14 @@ export function InstructorDashboard() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {saveError && (
+        <div className="rounded-lg border border-red-500/40 bg-red-950/40 px-4 py-2 text-sm text-red-200">
+          {saveError}
+        </div>
+      )}
+      {loading ? (
+        <div className="text-slate-400 text-sm">Loading classes from server…</div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-slate-300 text-xs uppercase tracking-wide">

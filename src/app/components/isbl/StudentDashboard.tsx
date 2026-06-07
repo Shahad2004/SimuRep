@@ -308,28 +308,8 @@ export function StudentDashboard({ initialClass = null, onLeave }: StudentDashbo
       setShowBriefing(true);
       return;
     }
-    if (typeof window === 'undefined') return;
-    try {
-      const raw = window.localStorage.getItem(CLASSES_STORAGE_KEY);
-      if (!raw) {
-        setAvailableClasses([]);
-        setShowBriefing(false);
-        return;
-      }
-      const parsed = JSON.parse(raw) as StudentClassConfig[];
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        setAvailableClasses([]);
-        setShowBriefing(false);
-        return;
-      }
-      setAvailableClasses(parsed);
-      const active = parsed.find((c) => c.status === 'active') ?? parsed[0];
-      setSelectedClassId(active.id);
-      setShowBriefing(true);
-    } catch {
-      setAvailableClasses([]);
-      setShowBriefing(false);
-    }
+    setAvailableClasses([]);
+    setShowBriefing(false);
   }, [initialClass]);
 
   const currentClass = availableClasses.find((c) => c.id === selectedClassId) ?? null;

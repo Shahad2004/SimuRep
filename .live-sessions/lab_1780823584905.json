@@ -1,0 +1,17 @@
+{
+  "labId": "lab_1780823584905",
+  "pin": "548027",
+  "level3Status": "live",
+  "updatedAt": "2026-06-07T09:37:47.548Z",
+  "players": {
+    "player_1780823648973_19068": {
+      "playerId": "player_1780823648973_19068",
+      "displayName": "Adham Al Qurashi",
+      "characterId": "adham_al_qurashi",
+      "progress": "level3_active",
+      "joinedAt": "2026-06-07T09:37:47.510Z",
+      "lastSeenAt": "2026-06-07T09:37:47.539Z"
+    }
+  },
+  "level3StartedAt": "2026-06-07T09:16:23.117Z"
+}

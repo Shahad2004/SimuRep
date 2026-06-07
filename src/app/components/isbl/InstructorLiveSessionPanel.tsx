@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Play, Square, Users } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Lab } from '@/app/types/classes';
@@ -11,12 +11,6 @@ import { useLiveSession } from '@/app/hooks/useLiveSession';
 import { instructorEndLevel3, instructorStartLevel3 } from '@/app/services/liveSessionSync';
 import { loadNashamaLeaderboard, type NashamaLeaderboardEntry } from './nashamaLevel3';
 import { getWaitingRoomCharacter, resolvePlayerDisplayLabel } from './waitingRoomCharacters';
-
-function finalLeaderboard(labId: string, session: LabLiveSession | null): NashamaLeaderboardEntry[] {
-  const live = liveSessionToLeaderboardEntries(session);
-  if (live.length > 0) return live;
-  return loadNashamaLeaderboard(labId);
-}
 
 function FinalResultsList({ entries }: { entries: NashamaLeaderboardEntry[] }) {
   if (entries.length === 0) {
@@ -52,10 +46,20 @@ function FinalResultsList({ entries }: { entries: NashamaLeaderboardEntry[] }) {
 
 export function InstructorLiveSessionPanel({ lab }: { lab: Lab }) {
   const { session, refresh } = useLiveSession(lab.id, lab.pin);
+  const [storedLeaderboard, setStoredLeaderboard] = useState<NashamaLeaderboardEntry[]>([]);
   const stats = session ? computeLiveSessionStats(session) : null;
   const isEnded = session?.level3Status === 'ended';
   const isLive = session?.level3Status === 'live';
-  const results = useMemo(() => finalLeaderboard(lab.id, session), [lab.id, session]);
+
+  useEffect(() => {
+    void loadNashamaLeaderboard(lab.id).then(setStoredLeaderboard);
+  }, [lab.id, session?.level3Status]);
+
+  const results = useMemo(() => {
+    const live = liveSessionToLeaderboardEntries(session);
+    if (live.length > 0) return live;
+    return storedLeaderboard;
+  }, [lab.id, session, storedLeaderboard]);
 
   const handleStart = async () => {
     await instructorStartLevel3(lab.id, lab.pin);

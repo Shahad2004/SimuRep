@@ -1,0 +1,17 @@
+{
+  "labId": "lab_1780824122411",
+  "pin": "856454",
+  "level3Status": "live",
+  "updatedAt": "2026-06-07T09:23:18.973Z",
+  "players": {
+    "player_1780824136212_2401": {
+      "playerId": "player_1780824136212_2401",
+      "displayName": "Amer Jamous",
+      "characterId": "amer_jamous",
+      "progress": "level3_active",
+      "joinedAt": "2026-06-07T09:23:16.792Z",
+      "lastSeenAt": "2026-06-07T09:23:18.803Z"
+    }
+  },
+  "level3StartedAt": "2026-06-07T09:23:15.538Z"
+}

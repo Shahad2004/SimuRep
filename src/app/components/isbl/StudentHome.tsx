@@ -2,16 +2,16 @@ import { useState, useEffect } from 'react';
 import { Factory, GraduationCap, Hash, LogIn, MessageSquare, Play, Send, Timer } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
-  loadStudentJoined,
-  saveStudentJoined,
-  loadInstructorClasses,
-  saveInstructorClasses,
-  findLabByPin,
   readSharedLabCode,
-  mergeSharedLab,
   type StudentJoinedEntry,
-  type InstructorClass,
 } from '@/app/types/classes';
+import {
+  fetchLabByPin,
+  fetchStudentJoined,
+  getGlobalPlayerId,
+  joinLabWithPin,
+  saveStudentJoined,
+} from '@/app/services/dataStore';
 import { APP_NAME } from '@/app/brand';
 import girlExplain from '@/assets/line-balancing/character/girl_explain.png';
 import { getWorkstationImageUrl } from './workstationAssets';
@@ -22,93 +22,122 @@ interface StudentHomeProps {
 
 export function StudentHome({ onPlayLab }: StudentHomeProps) {
   const [joined, setJoined] = useState<StudentJoinedEntry[]>([]);
-  const [classes, setClasses] = useState<InstructorClass[]>([]);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinNotice, setPinNotice] = useState('');
+  const [loading, setLoading] = useState(true);
   const [feedbackFor, setFeedbackFor] = useState<StudentJoinedEntry | null>(null);
+  const playerId = getGlobalPlayerId();
 
   const openLab = (entry: StudentJoinedEntry) => {
     onPlayLab(entry);
   };
 
-  const entryFromFoundLab = (
-    found: NonNullable<ReturnType<typeof findLabByPin>>,
-    joinedAt = new Date().toISOString(),
-  ): StudentJoinedEntry => ({
-    classId: found.class.id,
-    labId: found.lab.id,
-    className: found.class.name,
-    labTitle: found.lab.scenario.title,
-    templateId: found.lab.templateId,
-    joinedAt,
-    feedback: found.lab.feedbackFromInstructor,
-  });
+  const persistJoined = async (entries: StudentJoinedEntry[]) => {
+    setJoined(entries);
+    await saveStudentJoined(playerId, entries);
+  };
 
   useEffect(() => {
-    let instructorClasses = loadInstructorClasses();
-    let entries = loadStudentJoined();
-    entries = entries.map((e) => {
-      const cls = instructorClasses.find((c) => c.id === e.classId);
-      const lab = cls?.labs.find((l) => l.id === e.labId);
-      return { ...e, feedback: lab?.feedbackFromInstructor ?? e.feedback };
-    });
-    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-    const sharedLabCode = params?.get('lab')?.trim();
-    const joinPin = params?.get('join')?.trim();
+    let active = true;
 
-    if (sharedLabCode) {
-      const shared = readSharedLabCode(sharedLabCode);
-      if (shared) {
-        instructorClasses = mergeSharedLab(instructorClasses, shared);
-        saveInstructorClasses(instructorClasses);
-        setPinNotice(`Lab loaded: ${shared.lab.scenario.title}. Enter the PIN from your instructor to join.`);
-      } else {
-        setPinError('This student link is invalid. Ask your instructor to copy it again.');
+    async function init() {
+      try {
+        let entries = await fetchStudentJoined(playerId);
+        const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const sharedLabCode = params?.get('lab')?.trim();
+        const joinPin = params?.get('join')?.trim();
+
+        if (sharedLabCode) {
+          const shared = readSharedLabCode(sharedLabCode);
+          if (shared) {
+            setPinNotice(`Lab loaded: ${shared.lab.scenario.title}. Enter the PIN from your instructor to join.`);
+          } else {
+            setPinError('This student link is invalid. Ask your instructor to copy it again.');
+          }
+        }
+
+        if (joinPin) {
+          const result = await joinLabWithPin(joinPin, playerId);
+          if (result) {
+            const existingEntry = entries.find(
+              (j) => j.classId === result.entry.classId && j.labId === result.entry.labId,
+            );
+            const entry = existingEntry
+              ? { ...result.entry, joinedAt: existingEntry.joinedAt }
+              : result.entry;
+            entries = existingEntry
+              ? entries.map((j) => (j.classId === entry.classId && j.labId === entry.labId ? entry : j))
+              : [entry, ...entries];
+            await saveStudentJoined(playerId, entries);
+            if (active) {
+              setJoined(entries);
+              openLab(entry);
+              window.history.replaceState({}, '', window.location.pathname + (window.location.hash || ''));
+            }
+            return;
+          }
+        }
+
+        if (active) {
+          setJoined(entries);
+        }
+      } catch {
+        if (active) setPinError('Could not load your labs. Is the backend running?');
+      } finally {
+        if (active) setLoading(false);
       }
     }
 
-    setClasses(instructorClasses);
-    if (joinPin && instructorClasses.length > 0) {
-      const found = findLabByPin(instructorClasses, joinPin);
-      if (found) {
-        const existingEntry = entries.find((j) => j.classId === found.class.id && j.labId === found.lab.id);
-        const entry = entryFromFoundLab(found, existingEntry?.joinedAt);
-        entries = existingEntry
-          ? entries.map((j) => (j.classId === entry.classId && j.labId === entry.labId ? entry : j))
-          : [entry, ...entries];
-        saveStudentJoined(entries);
-        openLab(entry);
-        window.history.replaceState({}, '', window.location.pathname + (window.location.hash || ''));
-      }
-    }
-    setJoined(entries);
-    saveStudentJoined(entries);
-  }, []);
+    void init();
+    return () => {
+      active = false;
+    };
+  }, [playerId]);
 
-  const handleJoinWithPin = () => {
+  const handleJoinWithPin = async () => {
     setPinError('');
-    const latestClasses = loadInstructorClasses();
-    setClasses(latestClasses);
-    const found = findLabByPin(latestClasses, pin);
-    if (!found) {
-      setPinError('Invalid or expired PIN. If your instructor is on another device, ask for the student link.');
-      return;
-    }
-    const existingEntry = joined.find((j) => j.classId === found.class.id && j.labId === found.lab.id);
-    const entry = entryFromFoundLab(found, existingEntry?.joinedAt);
     setPinNotice('');
-    if (existingEntry) {
-      const next = joined.map((j) => (j.classId === entry.classId && j.labId === entry.labId ? entry : j));
-      setJoined(next);
-      saveStudentJoined(next);
+
+    const result = await joinLabWithPin(pin, playerId);
+    if (!result) {
+      const found = await fetchLabByPin(pin);
+      if (!found) {
+        setPinError('Invalid or expired PIN. Check with your instructor.');
+        return;
+      }
+      const entry: StudentJoinedEntry = {
+        classId: found.class.id,
+        labId: found.lab.id,
+        className: found.class.name,
+        labTitle: found.lab.scenario.title,
+        templateId: found.lab.templateId,
+        joinedAt: new Date().toISOString(),
+        feedback: found.lab.feedbackFromInstructor,
+      };
+      const existingEntry = joined.find((j) => j.classId === entry.classId && j.labId === entry.labId);
+      const next = existingEntry
+        ? joined.map((j) => (j.classId === entry.classId && j.labId === entry.labId ? entry : j))
+        : [entry, ...joined];
+      await persistJoined(next);
       setPin('');
       openLab(entry);
       return;
     }
-    const next = [entry, ...joined];
-    setJoined(next);
-    saveStudentJoined(next);
+
+    const existingEntry = joined.find(
+      (j) => j.classId === result.entry.classId && j.labId === result.entry.labId,
+    );
+    const entry = existingEntry
+      ? { ...result.entry, joinedAt: existingEntry.joinedAt }
+      : result.entry;
+
+    if (existingEntry) {
+      const next = joined.map((j) => (j.classId === entry.classId && j.labId === entry.labId ? entry : j));
+      await persistJoined(next);
+    } else {
+      await persistJoined([entry, ...joined]);
+    }
     setPin('');
     openLab(entry);
   };
@@ -119,6 +148,10 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
         <h2 className="text-2xl font-bold text-white">My dashboard</h2>
         <p className="text-sm text-slate-400 mt-1">Your {APP_NAME} games, classes, and instructor feedback.</p>
       </div>
+
+      {loading && (
+        <div className="text-sm text-slate-400 mb-4">Loading your labs from server…</div>
+      )}
 
       {/* Student intro */}
       <motion.div
@@ -311,7 +344,7 @@ export function StudentHome({ onPlayLab }: StudentHomeProps) {
             maxLength={6}
           />
           <button
-            onClick={handleJoinWithPin}
+            onClick={() => void handleJoinWithPin()}
             disabled={pin.length !== 6}
             className="px-5 py-2.5 rounded-lg bg-sky-600 text-white font-medium hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >

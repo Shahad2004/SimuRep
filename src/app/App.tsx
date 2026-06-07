@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { StudentDashboard } from './components/isbl/StudentDashboard';
 import { StudentHome } from './components/isbl/StudentHome';
 import { ProductionPlanningGame } from './components/isbl/ProductionPlanningGame';
@@ -8,46 +8,16 @@ import { NashamaLevel3Challenge } from './components/isbl/NashamaLevel3Challenge
 import { InstructorDashboard } from './components/isbl/InstructorDashboard';
 import { Users, GraduationCap } from 'lucide-react';
 import { HomeLandingPage } from './components/isbl/HomeLandingPage';
-import { loadInstructorClasses, getLabPinFromClasses, resolveLevel3CycleTimeSec } from './types/classes';
+import { resolveLevel3CycleTimeSec } from './types/classes';
 import { APP_NAME, APP_TAGLINE, appLogo } from '@/app/brand';
 import type { StudentJoinedEntry } from './types/classes';
 import type { Lab } from './types/classes';
 import type { ScenarioDefinition } from './types/classes';
 import { getOrCreatePlayerId, loadLiveSession, upsertLivePlayer } from './services/liveSessionSync';
+import { fetchLabByClientId } from './services/dataStore';
 import type { StudentProgressLevel } from './types/liveSession';
 
 type StudentScreen = 'dashboard' | 'game' | 'waiting' | 'level3';
-
-function useResolvedLab(entry: StudentJoinedEntry | null): {
-  classConfig: {
-    id: string;
-    name: string;
-    templateId: string;
-    createdAt: string;
-    status: 'draft' | 'active';
-    scenario: ScenarioDefinition;
-  };
-  lab: Lab;
-} | null {
-  return useMemo(() => {
-    if (!entry) return null;
-    const classes = loadInstructorClasses();
-    const cls = classes.find((c) => c.id === entry.classId);
-    const lab = cls?.labs.find((l) => l.id === entry.labId);
-    if (!cls || !lab) return null;
-    return {
-      classConfig: {
-        id: lab.id,
-        name: entry.className,
-        templateId: lab.templateId,
-        createdAt: lab.createdAt,
-        status: lab.status,
-        scenario: lab.scenario,
-      },
-      lab,
-    };
-  }, [entry]);
-}
 
 async function resolveInitialStudentScreen(
   entry: StudentJoinedEntry,
@@ -85,8 +55,9 @@ export default function App() {
   const [view, setView] = useState<'select' | 'student' | 'instructor'>('select');
   const [studentScreen, setStudentScreen] = useState<StudentScreen>('dashboard');
   const [selectedLabEntry, setSelectedLabEntry] = useState<StudentJoinedEntry | null>(null);
-  const resolved = useResolvedLab(selectedLabEntry);
-  const labPin = resolved ? getLabPinFromClasses(loadInstructorClasses(), resolved.lab.id) : '';
+  const [resolvedLab, setResolvedLab] = useState<Lab | null>(null);
+  const [labPin, setLabPin] = useState('');
+  const [labLoading, setLabLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -95,6 +66,46 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!selectedLabEntry) {
+      setResolvedLab(null);
+      setLabPin('');
+      return;
+    }
+
+    let active = true;
+    setLabLoading(true);
+    void fetchLabByClientId(selectedLabEntry.labId)
+      .then((found) => {
+        if (!active) return;
+        if (found) {
+          setResolvedLab(found.lab);
+          setLabPin(found.lab.pin);
+        } else {
+          setResolvedLab(null);
+          setLabPin('');
+        }
+      })
+      .finally(() => {
+        if (active) setLabLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedLabEntry]);
+
+  const classConfig = resolvedLab
+    ? {
+        id: resolvedLab.id,
+        name: selectedLabEntry?.className ?? '',
+        templateId: resolvedLab.templateId,
+        createdAt: resolvedLab.createdAt,
+        status: resolvedLab.status,
+        scenario: resolvedLab.scenario,
+      }
+    : null;
+
   const changeRole = () => {
     setView('select');
     setStudentScreen('dashboard');
@@ -102,9 +113,11 @@ export default function App() {
   };
 
   const openLab = useCallback(async (entry: StudentJoinedEntry) => {
-    const classes = loadInstructorClasses();
-    const pin = getLabPinFromClasses(classes, entry.labId);
     setSelectedLabEntry(entry);
+    const found = await fetchLabByClientId(entry.labId);
+    const pin = found?.lab.pin ?? '';
+    setResolvedLab(found?.lab ?? null);
+    setLabPin(pin);
     const screen = pin ? await resolveInitialStudentScreen(entry, pin) : 'game';
     setStudentScreen(screen);
   }, []);
@@ -172,6 +185,8 @@ export default function App() {
       ) : view === 'student' ? (
         studentScreen === 'dashboard' ? (
           <StudentHome onPlayLab={openLab} />
+        ) : labLoading ? (
+          <div className="container mx-auto p-8 text-slate-400">Loading lab…</div>
         ) : studentScreen === 'waiting' && selectedLabEntry ? (
           <Level3WaitingRoom
             entry={selectedLabEntry}
@@ -185,27 +200,27 @@ export default function App() {
             studentEntry={selectedLabEntry}
             labPin={labPin}
             displayName={displayName}
-            cycleTimeSec={resolveLevel3CycleTimeSec(resolved?.lab.lineBalancing)}
+            cycleTimeSec={resolveLevel3CycleTimeSec(resolvedLab?.lineBalancing)}
             onLeave={handleLeaveLab}
           />
-        ) : resolved?.lab.templateId === 'production-planning' && resolved.lab.productionPlanning ? (
+        ) : resolvedLab?.templateId === 'production-planning' && resolvedLab.productionPlanning ? (
           <ProductionPlanningGame
-            scenario={resolved.lab.scenario}
-            productionPlanning={resolved.lab.productionPlanning}
+            scenario={resolvedLab.scenario}
+            productionPlanning={resolvedLab.productionPlanning}
             onLeave={handleLeaveLab}
           />
-        ) : resolved?.lab.templateId === 'line-balancing' ? (
+        ) : resolvedLab?.templateId === 'line-balancing' ? (
           <LineBalancingGame
-            scenario={resolved.lab.scenario}
-            lineBalancing={resolved.lab.lineBalancing}
+            scenario={resolvedLab.scenario}
+            lineBalancing={resolvedLab.lineBalancing}
             studentEntry={selectedLabEntry ?? undefined}
             labPin={labPin}
             displayName={displayName}
             onLeave={handleLeaveLab}
             onLevel2Complete={handleLevel2Complete}
           />
-        ) : resolved?.lab.templateId === 'strategy-planning' ? (
-          <StudentDashboard initialClass={resolved?.classConfig ?? undefined} onLeave={handleLeaveLab} />
+        ) : resolvedLab?.templateId === 'strategy-planning' && classConfig ? (
+          <StudentDashboard initialClass={classConfig} onLeave={handleLeaveLab} />
         ) : (
           <StudentHome onPlayLab={openLab} />
         )

@@ -121,6 +121,11 @@ const INSTRUCTOR_CLASSES_KEY = 'simulab_instructor_classes_v2';
 const STUDENT_JOINED_KEY = 'simulab_student_joined_v1';
 const LAB_PERFORMANCE_RESULTS_KEY = 'simulab_lab_performance_results_v1';
 
+// Legacy keys kept for reference only — persistence is via backend API (dataStore.ts).
+void INSTRUCTOR_CLASSES_KEY;
+void STUDENT_JOINED_KEY;
+void LAB_PERFORMANCE_RESULTS_KEY;
+
 interface SharedLabPayload {
   version: 1;
   classId: string;
@@ -134,78 +139,27 @@ function generatePin(): string {
 }
 
 export function loadInstructorClasses(): InstructorClass[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(INSTRUCTOR_CLASSES_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as InstructorClass[];
-      if (Array.isArray(parsed)) return parsed;
-    }
-    const legacy = window.localStorage.getItem('isbl_instructor_classes_v1');
-    if (legacy) {
-      const arr = JSON.parse(legacy) as Array<{ id: string; name: string; templateId: string; scenario: ScenarioDefinition; createdAt: string; status: string }>;
-      if (Array.isArray(arr) && arr.length > 0) {
-        const migrated: InstructorClass[] = arr.map((c) => ({
-          id: c.id,
-          name: c.name,
-          createdAt: c.createdAt,
-          labs: [
-            {
-              id: `lab_${c.id}`,
-              templateId: (c.templateId as LabTemplateId) || 'strategy-planning',
-              scenario: c.scenario,
-              pin: generatePin(),
-              createdAt: c.createdAt,
-              status: (c.status as 'draft' | 'active') || 'draft',
-            },
-          ],
-        }));
-        window.localStorage.setItem(INSTRUCTOR_CLASSES_KEY, JSON.stringify(migrated));
-        return migrated;
-      }
-    }
-  } catch {}
   return [];
 }
 
-export function saveInstructorClasses(classes: InstructorClass[]): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(INSTRUCTOR_CLASSES_KEY, JSON.stringify(classes));
+export function saveInstructorClasses(_classes: InstructorClass[]): void {
+  /* use fetchInstructorClasses / saveInstructorClasses from dataStore.ts */
 }
 
 export function loadStudentJoined(): StudentJoinedEntry[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(STUDENT_JOINED_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as StudentJoinedEntry[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return [];
 }
 
-export function saveStudentJoined(entries: StudentJoinedEntry[]): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STUDENT_JOINED_KEY, JSON.stringify(entries));
+export function saveStudentJoined(_entries: StudentJoinedEntry[]): void {
+  /* use fetchStudentJoined / saveStudentJoined from dataStore.ts */
 }
 
 export function loadLabPerformanceResults(): LabPerformanceResult[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(LAB_PERFORMANCE_RESULTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as LabPerformanceResult[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return [];
 }
 
-export function saveLabPerformanceResult(result: LabPerformanceResult): void {
-  if (typeof window === 'undefined') return;
-  const results = loadLabPerformanceResults();
-  window.localStorage.setItem(LAB_PERFORMANCE_RESULTS_KEY, JSON.stringify([result, ...results]));
+export function saveLabPerformanceResult(_result: LabPerformanceResult): void {
+  /* use saveLabPerformanceResult from dataStore.ts */
 }
 
 export function findLabById(classes: InstructorClass[], labId: string): { class: InstructorClass; lab: Lab } | null {

@@ -1,0 +1,16 @@
+{
+  "labId": "lab_1780825096199",
+  "pin": "573860",
+  "level3Status": "waiting",
+  "updatedAt": "2026-06-07T11:10:47.121Z",
+  "players": {
+    "player_1780825111403_6911": {
+      "playerId": "player_1780825111403_6911",
+      "displayName": "Ali Hajabi",
+      "characterId": "ali_hajabi",
+      "progress": "waiting_l3",
+      "joinedAt": "2026-06-07T11:10:28.505Z",
+      "lastSeenAt": "2026-06-07T11:10:46.979Z"
+    }
+  }
+}

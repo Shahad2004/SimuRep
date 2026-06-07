@@ -244,16 +244,19 @@ export function NashamaLevel3Challenge({
   const [l3GuideAssign, setL3GuideAssign] = useState(true);
   const [hint, setHint] = useState<string | null>(null);
   const [scoreBreakdown, setScoreBreakdown] = useState<NashamaScoreBreakdown | null>(null);
-  const [localLeaderboard, setLocalLeaderboard] = useState<NashamaLeaderboardEntry[]>(() =>
-    loadNashamaLeaderboard(studentEntry?.labId),
-  );
+  const [localLeaderboard, setLocalLeaderboard] = useState<NashamaLeaderboardEntry[]>([]);
   const [lastEntryId, setLastEntryId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!studentEntry?.labId) return;
+    void loadNashamaLeaderboard(studentEntry.labId).then(setLocalLeaderboard);
+  }, [studentEntry?.labId]);
 
   const characterId = useMemo(() => {
     if (playerId && session?.players[playerId]?.characterId) {
       return session.players[playerId].characterId;
     }
-    if (labId) return getStoredWaitingCharacterId(labId);
+    if (labId) return getStoredWaitingCharacterId(labId, session, playerId);
     return null;
   }, [session, playerId, labId]);
 
@@ -513,9 +516,12 @@ export function NashamaLevel3Challenge({
       submittedAt: new Date().toISOString(),
       labId: studentEntry?.labId,
     };
-    saveNashamaLeaderboardEntry(entry);
-    setLastEntryId(entry.id);
-    setLocalLeaderboard(loadNashamaLeaderboard(studentEntry?.labId));
+    void saveNashamaLeaderboardEntry(entry).then(() => {
+      setLastEntryId(entry.id);
+      if (studentEntry?.labId) {
+        void loadNashamaLeaderboard(studentEntry.labId).then(setLocalLeaderboard);
+      }
+    });
     if (labId && labPin && playerId) {
       void updateProgress(playerId, 'level3_complete', {
         displayName: playerDisplayName,
@@ -550,7 +556,11 @@ export function NashamaLevel3Challenge({
     setHint(null);
     setScoreBreakdown(null);
     setLastEntryId(null);
-    setLocalLeaderboard(loadNashamaLeaderboard(studentEntry?.labId));
+    if (studentEntry?.labId) {
+      void loadNashamaLeaderboard(studentEntry.labId).then(setLocalLeaderboard);
+    } else {
+      setLocalLeaderboard([]);
+    }
   };
 
   const liveChecks = [

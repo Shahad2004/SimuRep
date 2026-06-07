@@ -30,7 +30,7 @@ export function useLiveSession(labId: string | undefined, pin: string | undefine
       return;
     }
     void refresh();
-    const unsub = subscribeLiveSession(labId, setSession);
+    const unsub = subscribeLiveSession(labId, pin, setSession);
     const interval = window.setInterval(() => void refresh(), POLL_MS);
     return () => {
       unsub();

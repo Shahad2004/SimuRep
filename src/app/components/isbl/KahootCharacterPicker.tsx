@@ -12,6 +12,8 @@ const KAHOOT_TILE_ACCENTS = [
   { bg: 'from-amber-500 to-amber-700', border: 'border-amber-300', ring: 'ring-amber-300/50', glow: 'shadow-amber-400/40' },
   { bg: 'from-emerald-600 to-emerald-800', border: 'border-emerald-400', ring: 'ring-emerald-400/50', glow: 'shadow-emerald-500/40' },
   { bg: 'from-violet-600 to-violet-800', border: 'border-violet-400', ring: 'ring-violet-400/50', glow: 'shadow-violet-500/40' },
+  { bg: 'from-cyan-600 to-cyan-800', border: 'border-cyan-400', ring: 'ring-cyan-400/50', glow: 'shadow-cyan-500/40' },
+  { bg: 'from-orange-600 to-orange-800', border: 'border-orange-400', ring: 'ring-orange-400/50', glow: 'shadow-orange-500/40' },
 ];
 
 export function KahootCharacterPicker({
@@ -54,7 +56,8 @@ export function KahootCharacterPicker({
         </motion.div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
+      <div className="max-h-[min(70vh,720px)] overflow-y-auto overflow-x-hidden pr-1">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
         {WAITING_ROOM_CHARACTERS.map((character, index) => {
           const accent = KAHOOT_TILE_ACCENTS[index % KAHOOT_TILE_ACCENTS.length];
           const taken = takenIds.has(character.id);
@@ -117,6 +120,7 @@ export function KahootCharacterPicker({
             </motion.button>
           );
         })}
+        </div>
       </div>
     </motion.div>
   );

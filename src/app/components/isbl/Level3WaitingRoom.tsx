@@ -8,11 +8,10 @@ import { useLiveSession } from '@/app/hooks/useLiveSession';
 import { JordanFlagStripe, NashamaPanel, NashamaWorldCupBadge } from './NashamaJordanTheme';
 import { KahootCharacterPicker, KahootPickCelebration } from './KahootCharacterPicker';
 import {
-  getStoredWaitingCharacterId,
   getTakenCharacterIds,
   getWaitingRoomCharacter,
   resolvePlayerDisplayLabel,
-  setStoredWaitingCharacterId,
+  getStoredWaitingCharacterId,
   type WaitingRoomCharacterId,
 } from './waitingRoomCharacters';
 import { APP_NAME, appLogo } from '@/app/brand';
@@ -62,19 +61,25 @@ export function Level3WaitingRoom({
   const joinedRef = useRef(false);
   const level3StartedRef = useRef(false);
 
-  const [selectedCharacterId, setSelectedCharacterId] = useState<WaitingRoomCharacterId | null>(() =>
-    getStoredWaitingCharacterId(entry.labId),
-  );
+  const [selectedCharacterId, setSelectedCharacterId] = useState<WaitingRoomCharacterId | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickingId, setPickingId] = useState<WaitingRoomCharacterId | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
-  const [lobbyReady, setLobbyReady] = useState(() => Boolean(getStoredWaitingCharacterId(entry.labId)));
+  const [lobbyReady, setLobbyReady] = useState(false);
 
   const takenIds = useMemo(() => getTakenCharacterIds(session, playerId), [session, playerId]);
 
   const myPlayer = session?.players[playerId];
   const activeCharacterId = myPlayer?.characterId ?? selectedCharacterId ?? null;
   const activeCharacter = getWaitingRoomCharacter(activeCharacterId ?? undefined);
+
+  useEffect(() => {
+    const stored = getStoredWaitingCharacterId(entry.labId, session, playerId);
+    if (stored) {
+      setSelectedCharacterId(stored);
+      setLobbyReady(true);
+    }
+  }, [entry.labId, session, playerId]);
 
   // Join waiting room once
   useEffect(() => {
@@ -109,10 +114,9 @@ export function Level3WaitingRoom({
   useEffect(() => {
     if (myPlayer?.characterId) {
       setSelectedCharacterId(myPlayer.characterId);
-      setStoredWaitingCharacterId(entry.labId, myPlayer.characterId);
       setLobbyReady(true);
     }
-  }, [myPlayer?.characterId, entry.labId]);
+  }, [myPlayer?.characterId]);
 
   // Instructor starts Level 3
   useEffect(() => {
@@ -163,7 +167,7 @@ export function Level3WaitingRoom({
       }
 
       setSelectedCharacterId(characterId);
-      setStoredWaitingCharacterId(entry.labId, characterId);
+      setLobbyReady(true);
       setShowCelebration(true);
     },
     [pickingId, lobbyReady, takenIds, claimCharacter, playerId, myPlayer?.joinedAt, entry.labId],

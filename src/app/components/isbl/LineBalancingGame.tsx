@@ -33,12 +33,12 @@ import {
 import { APP_NAME, APP_TAGLINE, appLogo } from '@/app/brand';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  saveLabPerformanceResult,
   type LineBalancingScenario,
   type LineBalancingTask,
   type ScenarioDefinition,
   type StudentJoinedEntry,
 } from '@/app/types/classes';
+import { saveLabPerformanceResult } from '@/app/services/dataStore';
 
 import girlExplain from '@/assets/line-balancing/character/girl_explain.png';
 import girlIdle from '@/assets/line-balancing/character/girl_idle.png';
@@ -1171,12 +1171,14 @@ export function LineBalancingGame({
     }
 
     if (studentEntry) {
-      saveLabPerformanceResult({
+      void saveLabPerformanceResult({
         id: `result_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
         classId: studentEntry.classId,
         labId: studentEntry.labId,
         templateId: studentEntry.templateId,
         submittedAt: new Date().toISOString(),
+        playerId,
+        displayName,
         metrics: {
           efficiencyPct: Math.round(efficiency * 100),
           idleTimeSec,
